@@ -1,449 +1,343 @@
--- UIController: Full cartoony HUD with coins, combo, reactions, super kiss overlay, milestones
--- All UI is built from code - no external assets
+-- UIController: Base controller + HUD (coins, leaderboard button, combo)
+-- Design: chunky cartoony, rounded corners, bold fonts, bouncy tweens
 
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local Shared = ReplicatedStorage:WaitForChild("Shared")
-local UITheme = require(Shared:WaitForChild("Modules"):WaitForChild("UITheme"))
-local TweenPresets = require(Shared:WaitForChild("Modules"):WaitForChild("TweenPresets"))
-local Config = require(Shared:WaitForChild("Modules"):WaitForChild("Config"))
-
 local player = Players.LocalPlayer
 
 local UIController = {}
-UIController.__index = UIController
 
+-- Colors
+local HOT_PINK = Color3.fromHex("#FF6EB4")
+local YELLOW = Color3.fromHex("#FFE44D")
+local SKY_BLUE = Color3.fromHex("#6EC6FF")
+local MINT = Color3.fromHex("#6EFFB4")
+local WHITE = Color3.fromRGB(255, 255, 255)
+
+-- Tween infos
+local ANIM_IN = TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local ANIM_OUT = TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+local POP = TweenInfo.new(0.1, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local POP_RETURN = TweenInfo.new(0.1, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+
+-- Refs
 local screenGui = nil
 local coinLabel = nil
 local comboFrame = nil
 local comboLabel = nil
-local comboMultLabel = nil
-local reactionFrame = nil
-local superOverlay = nil
-local milestoneBar = nil
-local totalKissLabel = nil
-local coinCount = 0
-local displayedCoinCount = 0
+local leaderboardOpen = false
 
-function UIController:Init()
-	self:BuildScreenGui()
-	self:BuildCoinDisplay()
-	self:BuildComboDisplay()
-	self:BuildReactionPopup()
-	self:BuildSuperKissOverlay()
-	self:BuildMilestoneBanner()
-	self:BuildKissCounter()
+-- State
+local displayedCoins = 0
+local currentCombo = 0
+local comboVisible = false
+
+---------------------------------------------------------------------------
+-- Helpers
+---------------------------------------------------------------------------
+
+local function corner(parent)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0.12, 0)
+	c.Parent = parent
+	return c
 end
 
-function UIController:BuildScreenGui()
+local function shadow(parent)
+	local s = Instance.new("UIStroke")
+	s.Color = Color3.fromRGB(0, 0, 0)
+	s.Thickness = 3
+	s.Transparency = 0.7
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	s.Parent = parent
+	return s
+end
+
+function UIController.animateIn(frame)
+	frame.Visible = true
+	frame.AnchorPoint = frame.AnchorPoint -- keep existing
+	-- Scale from 0 to 1 via UIScale
+	local uiScale = frame:FindFirstChildOfClass("UIScale")
+	if not uiScale then
+		uiScale = Instance.new("UIScale")
+		uiScale.Parent = frame
+	end
+	uiScale.Scale = 0
+	TweenService:Create(uiScale, ANIM_IN, { Scale = 1 }):Play()
+end
+
+function UIController.animateOut(frame)
+	local uiScale = frame:FindFirstChildOfClass("UIScale")
+	if not uiScale then
+		uiScale = Instance.new("UIScale")
+		uiScale.Scale = 1
+		uiScale.Parent = frame
+	end
+	local tween = TweenService:Create(uiScale, ANIM_OUT, { Scale = 0 })
+	tween:Play()
+	tween.Completed:Connect(function()
+		frame.Visible = false
+	end)
+end
+
+local function popScale(frame)
+	local uiScale = frame:FindFirstChildOfClass("UIScale")
+	if not uiScale then
+		uiScale = Instance.new("UIScale")
+		uiScale.Scale = 1
+		uiScale.Parent = frame
+	end
+	local up = TweenService:Create(uiScale, POP, { Scale = 1.3 })
+	up:Play()
+	up.Completed:Connect(function()
+		TweenService:Create(uiScale, POP_RETURN, { Scale = 1 }):Play()
+	end)
+end
+
+local function comboPopScale()
+	if not comboFrame then return end
+	local uiScale = comboFrame:FindFirstChildOfClass("UIScale")
+	if not uiScale then
+		uiScale = Instance.new("UIScale")
+		uiScale.Scale = 1
+		uiScale.Parent = comboFrame
+	end
+	local up = TweenService:Create(uiScale, POP, { Scale = 1.2 })
+	up:Play()
+	up.Completed:Connect(function()
+		TweenService:Create(uiScale, POP_RETURN, { Scale = 1 }):Play()
+	end)
+end
+
+---------------------------------------------------------------------------
+-- Build HUD
+---------------------------------------------------------------------------
+
+local function buildCoinDisplay()
+	local frame = Instance.new("Frame")
+	frame.Name = "CoinDisplay"
+	frame.Size = UDim2.new(0, 180, 0, 50)
+	frame.Position = UDim2.new(0, 16, 0, 16)
+	frame.BackgroundColor3 = HOT_PINK
+	frame.BorderSizePixel = 0
+	frame.Parent = screenGui
+	corner(frame)
+	shadow(frame)
+
+	-- Coin icon: yellow circle placeholder
+	local icon = Instance.new("Frame")
+	icon.Name = "CoinIcon"
+	icon.Size = UDim2.new(0, 34, 0, 34)
+	icon.Position = UDim2.new(0, 8, 0.5, -17)
+	icon.BackgroundColor3 = YELLOW
+	icon.BorderSizePixel = 0
+	icon.Parent = frame
+
+	local iconCorner = Instance.new("UICorner")
+	iconCorner.CornerRadius = UDim.new(0.5, 0)
+	iconCorner.Parent = icon
+
+	local dollarSign = Instance.new("TextLabel")
+	dollarSign.Name = "Dollar"
+	dollarSign.Size = UDim2.new(1, 0, 1, 0)
+	dollarSign.BackgroundTransparency = 1
+	dollarSign.Text = "$"
+	dollarSign.TextColor3 = HOT_PINK
+	dollarSign.Font = Enum.Font.GothamBold
+	dollarSign.TextSize = 20
+	dollarSign.Parent = icon
+
+	-- Coin count label
+	coinLabel = Instance.new("TextLabel")
+	coinLabel.Name = "CoinCount"
+	coinLabel.Size = UDim2.new(1, -52, 1, 0)
+	coinLabel.Position = UDim2.new(0, 48, 0, 0)
+	coinLabel.BackgroundTransparency = 1
+	coinLabel.Text = "0"
+	coinLabel.TextColor3 = WHITE
+	coinLabel.Font = Enum.Font.GothamBold
+	coinLabel.TextSize = 22
+	coinLabel.TextXAlignment = Enum.TextXAlignment.Left
+	coinLabel.Parent = frame
+
+	return frame
+end
+
+local function buildLeaderboardButton()
+	local btn = Instance.new("TextButton")
+	btn.Name = "LeaderboardButton"
+	btn.Size = UDim2.new(0, 50, 0, 50)
+	btn.Position = UDim2.new(1, -66, 0, 16)
+	btn.BackgroundColor3 = YELLOW
+	btn.BorderSizePixel = 0
+	btn.Text = "\xF0\x9F\x91\x91"
+	btn.TextSize = 28
+	btn.Font = Enum.Font.GothamBold
+	btn.AutoButtonColor = false
+	btn.Parent = screenGui
+	corner(btn)
+	shadow(btn)
+
+	-- Hover / press feedback
+	btn.MouseEnter:Connect(function()
+		TweenService:Create(btn, POP, { BackgroundColor3 = Color3.fromHex("#FFD700") }):Play()
+	end)
+	btn.MouseLeave:Connect(function()
+		TweenService:Create(btn, POP_RETURN, { BackgroundColor3 = YELLOW }):Play()
+	end)
+	btn.MouseButton1Click:Connect(function()
+		popScale(btn)
+		UIController.toggleLeaderboard()
+	end)
+
+	return btn
+end
+
+local function buildComboDisplay()
+	comboFrame = Instance.new("Frame")
+	comboFrame.Name = "ComboDisplay"
+	comboFrame.Size = UDim2.new(0, 200, 0, 60)
+	comboFrame.AnchorPoint = Vector2.new(0.5, 1)
+	comboFrame.Position = UDim2.new(0.5, 0, 1, -20)
+	comboFrame.BackgroundColor3 = MINT
+	comboFrame.BorderSizePixel = 0
+	comboFrame.Visible = false
+	comboFrame.Parent = screenGui
+	corner(comboFrame)
+	shadow(comboFrame)
+
+	-- Pre-set UIScale to 0 so animateIn works
+	local uiScale = Instance.new("UIScale")
+	uiScale.Scale = 0
+	uiScale.Parent = comboFrame
+
+	comboLabel = Instance.new("TextLabel")
+	comboLabel.Name = "ComboText"
+	comboLabel.Size = UDim2.new(1, 0, 1, 0)
+	comboLabel.BackgroundTransparency = 1
+	comboLabel.Text = "2x COMBO!!"
+	comboLabel.TextColor3 = Color3.fromRGB(30, 30, 30)
+	comboLabel.Font = Enum.Font.GothamBold
+	comboLabel.TextSize = 24
+	comboLabel.Parent = comboFrame
+
+	return comboFrame
+end
+
+---------------------------------------------------------------------------
+-- Public API
+---------------------------------------------------------------------------
+
+function UIController:Init()
 	screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "BrainrotHUD"
 	screenGui.ResetOnSpawn = false
 	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	screenGui.IgnoreGuiInset = true
 	screenGui.Parent = player:WaitForChild("PlayerGui")
+
+	buildCoinDisplay()
+	buildLeaderboardButton()
+	buildComboDisplay()
 end
 
--- COIN DISPLAY (top-left) --
-function UIController:BuildCoinDisplay()
-	local frame = Instance.new("Frame")
-	frame.Name = "CoinDisplay"
-	frame.Size = UDim2.new(0, 220, 0, 60)
-	frame.Position = UDim2.new(0, 20, 0, 60)
-	frame.BackgroundColor3 = Color3.fromRGB(40, 25, 60)
-	frame.BackgroundTransparency = 0.15
-	frame.Parent = screenGui
+function UIController:Start()
+	local remotesFolder = ReplicatedStorage:WaitForChild("Remotes", 15)
+	if not remotesFolder then
+		warn("[UIController] Remotes folder not found")
+		return
+	end
 
-	UITheme.Corner(frame, UITheme.CornerRadius.Large)
-	UITheme.AddStroke(frame, Color3.fromRGB(255, 210, 50), 3, 0.2)
-	UITheme.AddGradient(frame, "Dark", 90)
+	-- KissReaction: pop the coin counter (coins added externally via :AddCoins)
+	local kissReaction = remotesFolder:FindFirstChild("KissReaction")
+	if kissReaction then
+		kissReaction.OnClientEvent:Connect(function(_characterName, _reactionType, _globalCount)
+			-- Coin amount is handled by :AddCoins called from Init.client.lua
+		end)
+	end
 
-	-- Coin icon (circle)
-	local coinIcon = Instance.new("Frame")
-	coinIcon.Name = "CoinIcon"
-	coinIcon.Size = UDim2.new(0, 40, 0, 40)
-	coinIcon.Position = UDim2.new(0, 12, 0.5, -20)
-	coinIcon.BackgroundColor3 = UITheme.Colors.Gold
-	coinIcon.Parent = frame
-	UITheme.Corner(coinIcon, UITheme.CornerRadius.Full)
+	-- ComboUpdate
+	local comboUpdate = remotesFolder:FindFirstChild("ComboUpdate")
+	if comboUpdate then
+		comboUpdate.OnClientEvent:Connect(function(comboCount, _multiplier)
+			self:SetCombo(comboCount)
+		end)
+	end
 
-	local coinSymbol = Instance.new("TextLabel")
-	coinSymbol.Size = UDim2.new(1, 0, 1, 0)
-	coinSymbol.BackgroundTransparency = 1
-	coinSymbol.Text = "$"
-	coinSymbol.TextColor3 = UITheme.Colors.GoldDark
-	coinSymbol.Font = UITheme.Fonts.Title
-	coinSymbol.TextSize = 26
-	coinSymbol.Parent = coinIcon
+	-- SuperKissEvent
+	local superKiss = remotesFolder:FindFirstChild("SuperKissEvent")
+	if superKiss then
+		superKiss.OnClientEvent:Connect(function(_characterName, _coinsAwarded)
+			-- Super kiss visuals handled by other controllers;
+			-- coin addition handled via :AddCoins
+		end)
+	end
 
-	-- Coin count label
-	coinLabel = Instance.new("TextLabel")
-	coinLabel.Name = "CoinCount"
-	coinLabel.Size = UDim2.new(1, -65, 1, 0)
-	coinLabel.Position = UDim2.new(0, 60, 0, 0)
-	coinLabel.BackgroundTransparency = 1
-	coinLabel.Text = "0"
-	coinLabel.TextColor3 = UITheme.Colors.Gold
-	coinLabel.Font = UITheme.Fonts.Number
-	coinLabel.TextSize = 32
-	coinLabel.TextXAlignment = Enum.TextXAlignment.Left
-	coinLabel.Parent = frame
+	-- LeaderboardUpdate
+	local lbUpdate = remotesFolder:FindFirstChild("LeaderboardUpdate")
+	if lbUpdate then
+		lbUpdate.OnClientEvent:Connect(function(topKissers)
+			self:UpdateLeaderboard(topKissers)
+		end)
+	end
+
+	-- MilestoneAnnouncement
+	local milestone = remotesFolder:FindFirstChild("MilestoneAnnouncement")
+	if milestone then
+		milestone.OnClientEvent:Connect(function(characterName, milestoneCount)
+			self:ShowMilestone(characterName, milestoneCount)
+		end)
+	end
 end
-
--- COMBO DISPLAY (top-center) --
-function UIController:BuildComboDisplay()
-	comboFrame = Instance.new("Frame")
-	comboFrame.Name = "ComboDisplay"
-	comboFrame.Size = UDim2.new(0, 180, 0, 80)
-	comboFrame.Position = UDim2.new(0.5, -90, 0, 55)
-	comboFrame.BackgroundColor3 = Color3.fromRGB(30, 50, 80)
-	comboFrame.BackgroundTransparency = 0.2
-	comboFrame.Visible = false
-	comboFrame.Parent = screenGui
-
-	UITheme.Corner(comboFrame, UITheme.CornerRadius.Large)
-	UITheme.AddStroke(comboFrame, UITheme.Colors.Combo, 3, 0.1)
-
-	local comboTitle = Instance.new("TextLabel")
-	comboTitle.Name = "ComboTitle"
-	comboTitle.Size = UDim2.new(1, 0, 0, 22)
-	comboTitle.Position = UDim2.new(0, 0, 0, 6)
-	comboTitle.BackgroundTransparency = 1
-	comboTitle.Text = "COMBO"
-	comboTitle.TextColor3 = UITheme.Colors.ComboBright
-	comboTitle.Font = UITheme.Fonts.Body
-	comboTitle.TextSize = 16
-	comboTitle.Parent = comboFrame
-
-	comboLabel = Instance.new("TextLabel")
-	comboLabel.Name = "ComboCount"
-	comboLabel.Size = UDim2.new(0.5, 0, 0, 40)
-	comboLabel.Position = UDim2.new(0, 10, 0, 28)
-	comboLabel.BackgroundTransparency = 1
-	comboLabel.Text = "1"
-	comboLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-	comboLabel.Font = UITheme.Fonts.Combo
-	comboLabel.TextSize = 42
-	comboLabel.TextXAlignment = Enum.TextXAlignment.Center
-	comboLabel.Parent = comboFrame
-
-	comboMultLabel = Instance.new("TextLabel")
-	comboMultLabel.Name = "ComboMult"
-	comboMultLabel.Size = UDim2.new(0.5, 0, 0, 30)
-	comboMultLabel.Position = UDim2.new(0.5, 0, 0, 34)
-	comboMultLabel.BackgroundTransparency = 1
-	comboMultLabel.Text = "x1"
-	comboMultLabel.TextColor3 = UITheme.Colors.Gold
-	comboMultLabel.Font = UITheme.Fonts.Accent
-	comboMultLabel.TextSize = 28
-	comboMultLabel.TextXAlignment = Enum.TextXAlignment.Center
-	comboMultLabel.Parent = comboFrame
-end
-
--- REACTION POPUP (center screen, floats up and fades) --
-function UIController:BuildReactionPopup()
-	reactionFrame = Instance.new("Frame")
-	reactionFrame.Name = "ReactionPopup"
-	reactionFrame.Size = UDim2.new(0, 400, 0, 70)
-	reactionFrame.Position = UDim2.new(0.5, -200, 0.55, 0)
-	reactionFrame.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-	reactionFrame.BackgroundTransparency = 0.1
-	reactionFrame.Visible = false
-	reactionFrame.Parent = screenGui
-
-	UITheme.Corner(reactionFrame, UITheme.CornerRadius.XLarge)
-	UITheme.AddStroke(reactionFrame, UITheme.Colors.Accent, 3, 0.1)
-
-	local charLabel = Instance.new("TextLabel")
-	charLabel.Name = "CharName"
-	charLabel.Size = UDim2.new(1, -20, 0, 24)
-	charLabel.Position = UDim2.new(0, 10, 0, 6)
-	charLabel.BackgroundTransparency = 1
-	charLabel.Text = ""
-	charLabel.TextColor3 = UITheme.Colors.Accent
-	charLabel.Font = UITheme.Fonts.Title
-	charLabel.TextSize = 20
-	charLabel.TextXAlignment = Enum.TextXAlignment.Center
-	charLabel.Parent = reactionFrame
-
-	local reactionLabel = Instance.new("TextLabel")
-	reactionLabel.Name = "ReactionText"
-	reactionLabel.Size = UDim2.new(1, -20, 0, 30)
-	reactionLabel.Position = UDim2.new(0, 10, 0, 32)
-	reactionLabel.BackgroundTransparency = 1
-	reactionLabel.Text = ""
-	reactionLabel.TextColor3 = UITheme.Colors.Text
-	reactionLabel.Font = UITheme.Fonts.Reaction
-	reactionLabel.TextSize = 24
-	reactionLabel.TextXAlignment = Enum.TextXAlignment.Center
-	reactionLabel.Parent = reactionFrame
-end
-
--- SUPER KISS OVERLAY (fullscreen flash) --
-function UIController:BuildSuperKissOverlay()
-	superOverlay = Instance.new("Frame")
-	superOverlay.Name = "SuperKissOverlay"
-	superOverlay.Size = UDim2.new(1, 0, 1, 0)
-	superOverlay.BackgroundColor3 = UITheme.Colors.Super
-	superOverlay.BackgroundTransparency = 1
-	superOverlay.Visible = false
-	superOverlay.ZIndex = 10
-	superOverlay.Parent = screenGui
-
-	local superLabel = Instance.new("TextLabel")
-	superLabel.Name = "SuperLabel"
-	superLabel.Size = UDim2.new(1, 0, 0, 120)
-	superLabel.Position = UDim2.new(0, 0, 0.3, 0)
-	superLabel.BackgroundTransparency = 1
-	superLabel.Text = "SUPER KISS!"
-	superLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-	superLabel.TextStrokeColor3 = UITheme.Colors.Super
-	superLabel.TextStrokeTransparency = 0
-	superLabel.Font = UITheme.Fonts.Title
-	superLabel.TextSize = 96
-	superLabel.TextTransparency = 1
-	superLabel.ZIndex = 11
-	superLabel.Parent = superOverlay
-
-	local coinsAwardedLabel = Instance.new("TextLabel")
-	coinsAwardedLabel.Name = "CoinsAwarded"
-	coinsAwardedLabel.Size = UDim2.new(1, 0, 0, 60)
-	coinsAwardedLabel.Position = UDim2.new(0, 0, 0.45, 0)
-	coinsAwardedLabel.BackgroundTransparency = 1
-	coinsAwardedLabel.Text = ""
-	coinsAwardedLabel.TextColor3 = UITheme.Colors.Gold
-	coinsAwardedLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
-	coinsAwardedLabel.TextStrokeTransparency = 0.3
-	coinsAwardedLabel.Font = UITheme.Fonts.Accent
-	coinsAwardedLabel.TextSize = 48
-	coinsAwardedLabel.TextTransparency = 1
-	coinsAwardedLabel.ZIndex = 11
-	coinsAwardedLabel.Parent = superOverlay
-end
-
--- MILESTONE BANNER (slides in from top) --
-function UIController:BuildMilestoneBanner()
-	milestoneBar = Instance.new("Frame")
-	milestoneBar.Name = "MilestoneBanner"
-	milestoneBar.Size = UDim2.new(0, 500, 0, 70)
-	milestoneBar.Position = UDim2.new(0.5, -250, 0, -80) -- starts offscreen
-	milestoneBar.BackgroundColor3 = UITheme.Colors.MilestoneBg
-	milestoneBar.Visible = false
-	milestoneBar.ZIndex = 8
-	milestoneBar.Parent = screenGui
-
-	UITheme.Corner(milestoneBar, UITheme.CornerRadius.Large)
-	UITheme.AddStroke(milestoneBar, UITheme.Colors.Gold, 3, 0)
-
-	local icon = Instance.new("TextLabel")
-	icon.Name = "Icon"
-	icon.Size = UDim2.new(0, 50, 0, 50)
-	icon.Position = UDim2.new(0, 10, 0.5, -25)
-	icon.BackgroundTransparency = 1
-	icon.Text = "\xE2\xAD\x90"
-	icon.TextSize = 36
-	icon.Font = Enum.Font.SourceSans
-	icon.ZIndex = 9
-	icon.Parent = milestoneBar
-
-	local milestoneLabel = Instance.new("TextLabel")
-	milestoneLabel.Name = "MilestoneText"
-	milestoneLabel.Size = UDim2.new(1, -70, 1, 0)
-	milestoneLabel.Position = UDim2.new(0, 65, 0, 0)
-	milestoneLabel.BackgroundTransparency = 1
-	milestoneLabel.Text = ""
-	milestoneLabel.TextColor3 = UITheme.Colors.Text
-	milestoneLabel.Font = UITheme.Fonts.Title
-	milestoneLabel.TextSize = 22
-	milestoneLabel.TextWrapped = true
-	milestoneLabel.ZIndex = 9
-	milestoneLabel.Parent = milestoneBar
-end
-
--- KISS COUNTER (top-left below coins) --
-function UIController:BuildKissCounter()
-	local frame = Instance.new("Frame")
-	frame.Name = "KissCounter"
-	frame.Size = UDim2.new(0, 180, 0, 45)
-	frame.Position = UDim2.new(0, 20, 0, 128)
-	frame.BackgroundColor3 = Color3.fromRGB(50, 30, 70)
-	frame.BackgroundTransparency = 0.2
-	frame.Parent = screenGui
-
-	UITheme.Corner(frame, UITheme.CornerRadius.Medium)
-	UITheme.AddStroke(frame, UITheme.Colors.Accent, 2, 0.3)
-
-	local kissIcon = Instance.new("TextLabel")
-	kissIcon.Size = UDim2.new(0, 35, 0, 35)
-	kissIcon.Position = UDim2.new(0, 8, 0.5, -17)
-	kissIcon.BackgroundTransparency = 1
-	kissIcon.Text = "\xF0\x9F\x92\x8B"
-	kissIcon.TextSize = 24
-	kissIcon.Font = Enum.Font.SourceSans
-	kissIcon.Parent = frame
-
-	totalKissLabel = Instance.new("TextLabel")
-	totalKissLabel.Name = "TotalKisses"
-	totalKissLabel.Size = UDim2.new(1, -50, 1, 0)
-	totalKissLabel.Position = UDim2.new(0, 45, 0, 0)
-	totalKissLabel.BackgroundTransparency = 1
-	totalKissLabel.Text = "0 kisses"
-	totalKissLabel.TextColor3 = UITheme.Colors.AccentGlow
-	totalKissLabel.Font = UITheme.Fonts.Number
-	totalKissLabel.TextSize = 22
-	totalKissLabel.TextXAlignment = Enum.TextXAlignment.Left
-	totalKissLabel.Parent = frame
-end
-
--- PUBLIC API --
 
 function UIController:AddCoins(amount)
-	coinCount = coinCount + amount
-	-- Animated count-up
-	task.spawn(function()
-		local startVal = displayedCoinCount
-		local endVal = coinCount
-		local duration = 0.4
-		local startTime = tick()
-		while true do
-			local elapsed = tick() - startTime
-			local alpha = math.min(elapsed / duration, 1)
-			-- Ease out quad
-			alpha = 1 - (1 - alpha) * (1 - alpha)
-			local current = math.floor(startVal + (endVal - startVal) * alpha)
-			coinLabel.Text = tostring(current)
-			if alpha >= 1 then break end
-			task.wait()
-		end
-		displayedCoinCount = endVal
-		coinLabel.Text = tostring(endVal)
-	end)
+	displayedCoins = displayedCoins + amount
 
-	-- Bump animation on coin display
-	local parent = coinLabel.Parent
-	local orig = parent.Size
-	local bump = UDim2.new(orig.X.Scale, orig.X.Offset + 8, orig.Y.Scale, orig.Y.Offset + 4)
-	TweenPresets.BumpUI(parent, bump, orig)
-end
-
-function UIController:UpdateCombo(count, multiplier)
-	comboFrame.Visible = true
-	comboLabel.Text = tostring(count)
-	comboMultLabel.Text = "x" .. tostring(multiplier)
-
-	-- Bounce animation
-	local orig = comboFrame.Size
-	local bump = UDim2.new(0, 200, 0, 90)
-	TweenPresets.BumpUI(comboFrame, bump, orig)
-
-	-- Change color based on combo level
-	if count >= 10 then
-		comboLabel.TextColor3 = UITheme.Colors.Super
-		UITheme.AddStroke(comboFrame, UITheme.Colors.Super, 3, 0)
-	elseif count >= 5 then
-		comboLabel.TextColor3 = UITheme.Colors.Gold
-	else
-		comboLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+	if coinLabel then
+		coinLabel.Text = tostring(displayedCoins)
+		popScale(coinLabel)
 	end
+end
 
-	-- Auto-hide after combo window
-	task.delay(Config.COMBO_WINDOW + 0.5, function()
-		if comboFrame.Visible then
-			TweenPresets.Play(comboFrame, "Fade", { BackgroundTransparency = 1 })
-			task.wait(0.3)
-			comboFrame.Visible = false
-			comboFrame.BackgroundTransparency = 0.2
+function UIController:SetCombo(count)
+	currentCombo = count
+
+	if count >= 2 then
+		if comboLabel then
+			comboLabel.Text = tostring(count) .. "x COMBO!!"
 		end
-	end)
-end
 
-function UIController:ShowReaction(characterName, reactionText, globalCount)
-	local charLabel = reactionFrame:FindFirstChild("CharName")
-	local reactionLabel = reactionFrame:FindFirstChild("ReactionText")
-
-	charLabel.Text = characterName
-	reactionLabel.Text = "..." .. reactionText .. "..."
-
-	-- Animate in
-	reactionFrame.Visible = true
-	reactionFrame.BackgroundTransparency = 0.1
-	reactionFrame.Position = UDim2.new(0.5, -200, 0.55, 0)
-
-	TweenPresets.Play(reactionFrame, "PopIn", {
-		Position = UDim2.new(0.5, -200, 0.5, 0),
-	})
-
-	-- Float up and fade out
-	task.delay(1.5, function()
-		TweenPresets.Play(reactionFrame, "FadeSlow", {
-			Position = UDim2.new(0.5, -200, 0.4, 0),
-			BackgroundTransparency = 1,
-		})
-		task.delay(0.6, function()
-			reactionFrame.Visible = false
-			reactionFrame.BackgroundTransparency = 0.1
-		end)
-	end)
-end
-
-function UIController:ShowSuperKiss(characterName, coinsAwarded)
-	superOverlay.Visible = true
-	local superLabel = superOverlay:FindFirstChild("SuperLabel")
-	local coinsLabel = superOverlay:FindFirstChild("CoinsAwarded")
-
-	coinsLabel.Text = "+" .. tostring(coinsAwarded) .. " COINS!"
-
-	-- Flash background
-	TweenPresets.Play(superOverlay, "FadeFast", { BackgroundTransparency = 0.5 })
-	-- Pop in text
-	superLabel.TextTransparency = 0
-	superLabel.TextSize = 20
-	TweenPresets.Play(superLabel, "Elastic", { TextSize = 96 })
-	task.delay(0.2, function()
-		coinsLabel.TextTransparency = 0
-		TweenPresets.Play(coinsLabel, "PopIn", { TextSize = 48 })
-	end)
-
-	-- Fade all out
-	task.delay(2.5, function()
-		TweenPresets.Play(superOverlay, "FadeSlow", { BackgroundTransparency = 1 })
-		TweenPresets.Play(superLabel, "Fade", { TextTransparency = 1 })
-		TweenPresets.Play(coinsLabel, "Fade", { TextTransparency = 1 })
-		task.delay(0.7, function()
-			superOverlay.Visible = false
-		end)
-	end)
-end
-
-function UIController:ShowMilestone(characterName, milestone)
-	local label = milestoneBar:FindFirstChild("MilestoneText")
-	label.Text = characterName .. " has been kissed " .. tostring(milestone) .. " times!"
-
-	milestoneBar.Visible = true
-	milestoneBar.Position = UDim2.new(0.5, -250, 0, -80)
-
-	-- Slide in
-	TweenPresets.Play(milestoneBar, "Slide", {
-		Position = UDim2.new(0.5, -250, 0, 20),
-	})
-
-	-- Slide out after 4 seconds
-	task.delay(4, function()
-		TweenPresets.Play(milestoneBar, "Slide", {
-			Position = UDim2.new(0.5, -250, 0, -80),
-		})
-		task.delay(0.5, function()
-			milestoneBar.Visible = false
-		end)
-	end)
-end
-
-function UIController:UpdateKissCount(count)
-	if totalKissLabel then
-		totalKissLabel.Text = tostring(count) .. " kisses"
+		if not comboVisible then
+			comboVisible = true
+			UIController.animateIn(comboFrame)
+		else
+			comboPopScale()
+		end
+	elseif count <= 0 then
+		if comboVisible then
+			comboVisible = false
+			UIController.animateOut(comboFrame)
+		end
 	end
+end
+
+function UIController.toggleLeaderboard()
+	leaderboardOpen = not leaderboardOpen
+	-- Leaderboard panel built in a later phase; this is the hook point
+end
+
+function UIController:UpdateLeaderboard(_topKissers)
+	-- Leaderboard panel built in a later phase
+end
+
+function UIController:ShowMilestone(_characterName, _milestoneCount)
+	-- Milestone banner built in a later phase
+end
+
+function UIController:GetScreenGui()
+	return screenGui
 end
 
 return UIController

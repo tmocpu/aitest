@@ -45,10 +45,11 @@ VFXController:Init()
 print("[Client] VFXController initialized")
 
 UIController:Init()
+UIController:Start()
 print("[Client] UIController initialized")
 
 -- LeaderboardController gets the HUD's ScreenGui
-local hudGui = player:WaitForChild("PlayerGui"):WaitForChild("BrainrotHUD")
+local hudGui = UIController:GetScreenGui()
 LeaderboardController:Init(hudGui)
 print("[Client] LeaderboardController initialized")
 
@@ -64,31 +65,29 @@ local localKissCount = 0
 
 -- Wire up remote events to controllers --
 
--- Kiss Reaction: show reaction popup + VFX + NPC animation
+-- Kiss Reaction: show reaction popup + VFX + NPC animation + coins
 remotes.KissReaction.OnClientEvent:Connect(function(characterName, reactionType, globalCount)
-	UIController:ShowReaction(characterName, reactionType, globalCount)
 	AnimationController:OnKissReaction(characterName, reactionType, globalCount)
 
 	localKissCount = localKissCount + 1
-	UIController:UpdateKissCount(localKissCount)
+	UIController:AddCoins(Config.BASE_KISS_COINS)
 
-	-- Coin popup at NPC position
+	-- Coin popup VFX at NPC position
 	local npcsFolder = Workspace:FindFirstChild("NPCs")
 	if npcsFolder then
 		local npcModel = npcsFolder:FindFirstChild(characterName)
 		if npcModel then
 			local body = npcModel:FindFirstChild("Body") or npcModel.PrimaryPart
 			if body then
-				UIController:AddCoins(Config.BASE_KISS_COINS)
 				VFXController:SpawnCoinPopup(body.Position, Config.BASE_KISS_COINS)
 			end
 		end
 	end
 end)
 
--- Combo Update: show combo counter + sound + camera shake
+-- Combo Update: combo display + sound + camera shake
 remotes.ComboUpdate.OnClientEvent:Connect(function(comboCount, multiplier)
-	UIController:UpdateCombo(comboCount, multiplier)
+	UIController:SetCombo(comboCount)
 	SoundController:PlayComboTick(comboCount)
 	AnimationController:OnComboUpdate(comboCount, multiplier)
 
@@ -104,11 +103,11 @@ remotes.ComboUpdate.OnClientEvent:Connect(function(comboCount, multiplier)
 	end
 end)
 
--- Super Kiss: full screen celebration + flash + camera shake
+-- Super Kiss: celebration + flash + camera shake
 remotes.SuperKissEvent.OnClientEvent:Connect(function(characterName, coinsAwarded)
-	UIController:ShowSuperKiss(characterName, coinsAwarded)
 	SoundController:PlaySuperKiss()
 	AnimationController:OnSuperKissEvent(characterName, coinsAwarded)
+	UIController:AddCoins(coinsAwarded)
 
 	-- Mega VFX at NPC
 	local npcsFolder = Workspace:FindFirstChild("NPCs")
@@ -122,17 +121,15 @@ remotes.SuperKissEvent.OnClientEvent:Connect(function(characterName, coinsAwarde
 			end
 		end
 	end
-
-	-- Add the bonus coins to display
-	UIController:AddCoins(coinsAwarded)
 end)
 
--- Leaderboard Update: refresh leaderboard UI
+-- Leaderboard Update: refresh leaderboard panel
 remotes.LeaderboardUpdate.OnClientEvent:Connect(function(topKissers)
 	LeaderboardController:UpdateEntries(topKissers)
+	UIController:UpdateLeaderboard(topKissers)
 end)
 
--- Milestone Announcement: banner + sound + 720 spin + gold pulse
+-- Milestone Announcement: banner + sound + NPC animation
 remotes.MilestoneAnnouncement.OnClientEvent:Connect(function(characterName, milestone)
 	UIController:ShowMilestone(characterName, milestone)
 	SoundController:PlayMilestone()
