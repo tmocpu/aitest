@@ -1,4 +1,5 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Modules"):WaitForChild("Config"))
 local ReactionData = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Modules"):WaitForChild("ReactionData"))
@@ -10,41 +11,26 @@ local characters = {}
 local RemoteService = nil
 
 local CHARACTER_DEFINITIONS = {
-	{
-		Name = "Tralalero Tralala",
-		RarityTier = "Common",
-		Cooldown = 0.8,
-	},
-	{
-		Name = "Bombardino Coccodrillo",
-		RarityTier = "Common",
-		Cooldown = 0.8,
-	},
-	{
-		Name = "Tung Tung Tung Sahur",
-		RarityTier = "Uncommon",
-		Cooldown = 0.8,
-	},
-	{
-		Name = "Brr Brr Patapim",
-		RarityTier = "Uncommon",
-		Cooldown = 0.8,
-	},
-	{
-		Name = "Cappuccino Assassino",
-		RarityTier = "Rare",
-		Cooldown = 0.8,
-	},
-	{
-		Name = "Ballerina Cappuccina",
-		RarityTier = "Rare",
-		Cooldown = 0.8,
-	},
+	{ Name = "Tralalero Tralala", RarityTier = "Common", Cooldown = 0.8 },
+	{ Name = "Bombardino Coccodrillo", RarityTier = "Common", Cooldown = 0.8 },
+	{ Name = "Tung Tung Tung Sahur", RarityTier = "Uncommon", Cooldown = 0.8 },
+	{ Name = "Brr Brr Patapim", RarityTier = "Uncommon", Cooldown = 0.8 },
+	{ Name = "Cappuccino Assassino", RarityTier = "Rare", Cooldown = 0.8 },
+	{ Name = "Ballerina Cappuccina", RarityTier = "Rare", Cooldown = 0.8 },
+	-- ModelService characters
+	{ Name = "Pizzicato Pangolino", RarityTier = "Common", Cooldown = 0.8 },
+	{ Name = "Bombardino Bufalo", RarityTier = "Uncommon", Cooldown = 0.8 },
+	{ Name = "Trombettino Tartaruga", RarityTier = "Common", Cooldown = 0.8 },
+	{ Name = "Cappellino Capibara", RarityTier = "Common", Cooldown = 0.8 },
+	{ Name = "Fischietto Fenicottero", RarityTier = "Uncommon", Cooldown = 0.8 },
+	{ Name = "Urlando Unicorno", RarityTier = "Rare", Cooldown = 0.8 },
+	{ Name = "Saltellino Salamandra", RarityTier = "Uncommon", Cooldown = 0.8 },
+	{ Name = "Magnifico Macarone", RarityTier = "Rare", Cooldown = 0.8 },
 }
 
 function CharacterService:Init()
 	for _, def in ipairs(CHARACTER_DEFINITIONS) do
-		local reactions = ReactionData[def.Name] or { normal = {}, combo = {}, super = {} }
+		local reactions = ReactionData[def.Name] or { normal = {"smiles"}, combo = {"gets excited"}, super = {"goes legendary"} }
 		characters[def.Name] = {
 			Name = def.Name,
 			KissCount = 0,
@@ -79,7 +65,6 @@ function CharacterService:IncrementKissCount(characterName)
 
 	character.KissCount = character.KissCount + 1
 
-	-- Check for milestone
 	if character.KissCount % Config.MILESTONE_INTERVAL == 0 then
 		self:BroadcastMilestone(characterName, character.KissCount)
 	end
@@ -99,10 +84,6 @@ function CharacterService:BroadcastMilestone(characterName, milestone)
 	if RemoteService then
 		RemoteService:FireAllClients("MilestoneAnnouncement", characterName, milestone)
 	end
-
-	if Config.DEBUG_MODE then
-		print("[CharacterService] Milestone: " .. characterName .. " reached " .. milestone .. " kisses!")
-	end
 end
 
 function CharacterService:GetReaction(characterName, reactionTier)
@@ -120,9 +101,7 @@ function CharacterService:GetReaction(characterName, reactionTier)
 end
 
 function CharacterService:GetCharacterPosition(characterName)
-	-- Look for the NPC model in workspace
-	local workspace = game:GetService("Workspace")
-	local npcsFolder = workspace:FindFirstChild("NPCs")
+	local npcsFolder = Workspace:FindFirstChild("NPCs")
 	if not npcsFolder then
 		return nil
 	end

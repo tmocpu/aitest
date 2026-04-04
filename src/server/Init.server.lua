@@ -8,9 +8,13 @@ local DataService = require(Services:WaitForChild("DataService"))
 local CharacterService = require(Services:WaitForChild("CharacterService"))
 local LeaderboardService = require(Services:WaitForChild("LeaderboardService"))
 local KissService = require(Services:WaitForChild("KissService"))
+local WorldSetup = require(Services:WaitForChild("WorldSetup"))
+local ModelService = require(Services:WaitForChild("ModelService"))
 
 local serviceList = {
+	{ name = "WorldSetup", module = WorldSetup },
 	{ name = "RemoteService", module = RemoteService },
+	{ name = "ModelService", module = ModelService },
 	{ name = "DataService", module = DataService },
 	{ name = "CharacterService", module = CharacterService },
 	{ name = "LeaderboardService", module = LeaderboardService },
