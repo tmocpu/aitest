@@ -10,7 +10,7 @@ ModelService.__index = ModelService
 local CHARACTER_SPECS = {
 	{
 		Name = "Pizzicato Pangolino",
-		Position = Vector3.new(-60, 5, -20),
+		Position = Vector3.new(30, 5, 0),
 		BodyColor = Color3.fromRGB(160, 120, 70),
 		AccentColor = Color3.fromRGB(190, 150, 90),
 		HeadColor = Color3.fromRGB(175, 135, 80),
@@ -29,7 +29,7 @@ local CHARACTER_SPECS = {
 	},
 	{
 		Name = "Bombardino Bufalo",
-		Position = Vector3.new(-35, 5, -30),
+		Position = Vector3.new(21.2, 5, 21.2),
 		BodyColor = Color3.fromRGB(100, 100, 110),
 		AccentColor = Color3.fromRGB(70, 70, 80),
 		HeadColor = Color3.fromRGB(90, 90, 100),
@@ -48,7 +48,7 @@ local CHARACTER_SPECS = {
 	},
 	{
 		Name = "Trombettino Tartaruga",
-		Position = Vector3.new(-10, 5, -25),
+		Position = Vector3.new(0, 5, 30),
 		BodyColor = Color3.fromRGB(60, 140, 70),
 		AccentColor = Color3.fromRGB(80, 110, 50),
 		HeadColor = Color3.fromRGB(70, 160, 80),
@@ -67,7 +67,7 @@ local CHARACTER_SPECS = {
 	},
 	{
 		Name = "Cappellino Capibara",
-		Position = Vector3.new(15, 5, -30),
+		Position = Vector3.new(-21.2, 5, 21.2),
 		BodyColor = Color3.fromRGB(180, 150, 100),
 		AccentColor = Color3.fromRGB(200, 170, 120),
 		HeadColor = Color3.fromRGB(190, 160, 110),
@@ -86,7 +86,7 @@ local CHARACTER_SPECS = {
 	},
 	{
 		Name = "Fischietto Fenicottero",
-		Position = Vector3.new(40, 5, -20),
+		Position = Vector3.new(-30, 5, 0),
 		BodyColor = Color3.fromRGB(255, 130, 150),
 		AccentColor = Color3.fromRGB(255, 100, 120),
 		HeadColor = Color3.fromRGB(255, 160, 170),
@@ -105,7 +105,7 @@ local CHARACTER_SPECS = {
 	},
 	{
 		Name = "Urlando Unicorno",
-		Position = Vector3.new(65, 5, -25),
+		Position = Vector3.new(-21.2, 5, -21.2),
 		BodyColor = Color3.fromRGB(245, 245, 255),
 		AccentColor = Color3.fromRGB(200, 150, 255),
 		HeadColor = Color3.fromRGB(250, 250, 255),
@@ -124,7 +124,7 @@ local CHARACTER_SPECS = {
 	},
 	{
 		Name = "Saltellino Salamandra",
-		Position = Vector3.new(-45, 5, 20),
+		Position = Vector3.new(0, 5, -30),
 		BodyColor = Color3.fromRGB(230, 130, 30),
 		AccentColor = Color3.fromRGB(40, 40, 40),
 		HeadColor = Color3.fromRGB(240, 140, 40),
@@ -143,7 +143,7 @@ local CHARACTER_SPECS = {
 	},
 	{
 		Name = "Magnifico Macarone",
-		Position = Vector3.new(20, 5, 25),
+		Position = Vector3.new(21.2, 5, -21.2),
 		BodyColor = Color3.fromRGB(245, 220, 100),
 		AccentColor = Color3.fromRGB(255, 240, 140),
 		HeadColor = Color3.fromRGB(250, 230, 120),

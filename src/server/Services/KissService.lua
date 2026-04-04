@@ -1,4 +1,5 @@
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local ServerStorage = game:GetService("ServerStorage")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Modules"):WaitForChild("Config"))
 local RateLimiter = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Modules"):WaitForChild("RateLimiter"))
@@ -166,6 +167,12 @@ function KissService:ProcessKiss(player, characterName)
 	-- Super Kiss event
 	if isSuperKiss then
 		RemoteService:FireAllClients("SuperKissEvent", characterName, coinsAwarded)
+	end
+
+	-- Fire BindableEvent for WorldService heart burst
+	local kissBindable = ServerStorage:FindFirstChild("KissHappened")
+	if kissBindable then
+		kissBindable:Fire(characterName)
 	end
 
 	if Config.DEBUG_MODE then
