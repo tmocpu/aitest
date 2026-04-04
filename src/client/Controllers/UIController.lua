@@ -4,6 +4,7 @@
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
 
@@ -22,12 +23,38 @@ local ANIM_OUT = TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.
 local POP = TweenInfo.new(0.1, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 local POP_RETURN = TweenInfo.new(0.1, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
 
+-- Extra tween infos
+local POPUP_SCALE_IN = TweenInfo.new(0.2, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local POPUP_FLOAT = TweenInfo.new(1.0, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local POPUP_FADE = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local BANNER_SLIDE_IN = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local BANNER_SLIDE_OUT = TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+local MILESTONE_IN = TweenInfo.new(0.5, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local MILESTONE_OUT = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+
+-- Rainbow colors for super kiss popup
+local RAINBOW = {
+	Color3.fromRGB(255, 60, 60),
+	Color3.fromRGB(255, 160, 40),
+	Color3.fromRGB(255, 230, 50),
+	Color3.fromRGB(60, 220, 90),
+	Color3.fromRGB(60, 170, 255),
+	Color3.fromRGB(180, 80, 255),
+	Color3.fromRGB(255, 60, 180),
+}
+
 -- Refs
 local screenGui = nil
 local coinLabel = nil
 local comboFrame = nil
 local comboLabel = nil
 local leaderboardOpen = false
+local comboBannerFrame = nil
+local comboBannerLabel = nil
+local comboBannerHideThread = nil
+local milestoneBanner = nil
+local milestoneLabel = nil
+local milestoneHideThread = nil
 
 -- State
 local displayedCoins = 0
@@ -332,8 +359,258 @@ function UIController:UpdateLeaderboard(_topKissers)
 	-- Leaderboard panel built in a later phase
 end
 
-function UIController:ShowMilestone(_characterName, _milestoneCount)
-	-- Milestone banner built in a later phase
+---------------------------------------------------------------------------
+-- 3. Kiss Popup (screen-space, floats up and fades, then self-destructs)
+---------------------------------------------------------------------------
+
+function UIController:SpawnKissPopup(characterWorldPos, coins, isSuper)
+	if not screenGui then return end
+
+	local camera = Workspace.CurrentCamera
+	if not camera then return end
+
+	local screenPos, onScreen = camera:WorldToViewportPoint(characterWorldPos + Vector3.new(0, 4, 0))
+	if not onScreen then return end
+
+	-- Container frame for both shadow and main label
+	local container = Instance.new("Frame")
+	container.Name = "KissPopup"
+	container.Size = UDim2.new(0, 240, 0, 40)
+	container.AnchorPoint = Vector2.new(0.5, 1)
+	container.Position = UDim2.new(0, screenPos.X, 0, screenPos.Y)
+	container.BackgroundTransparency = 1
+	container.Parent = screenGui
+
+	-- UIScale for pop-in animation
+	local uiScale = Instance.new("UIScale")
+	uiScale.Scale = 0
+	uiScale.Parent = container
+
+	-- Text content
+	local text = "+" .. tostring(coins) .. " coins"
+	local fontSize = 20
+	if isSuper then
+		text = "+" .. tostring(coins) .. " SUPER KISS!!"
+		fontSize = 26
+	end
+
+	-- Drop shadow label (offset 2,2, black 50% transparency)
+	local shadowLabel = Instance.new("TextLabel")
+	shadowLabel.Name = "Shadow"
+	shadowLabel.Size = UDim2.new(1, 0, 1, 0)
+	shadowLabel.Position = UDim2.new(0, 2, 0, 2)
+	shadowLabel.BackgroundTransparency = 1
+	shadowLabel.Text = text
+	shadowLabel.TextColor3 = Color3.fromRGB(0, 0, 0)
+	shadowLabel.TextTransparency = 0.5
+	shadowLabel.Font = Enum.Font.GothamBold
+	shadowLabel.TextSize = fontSize
+	shadowLabel.Parent = container
+
+	-- Main text label
+	local mainLabel = Instance.new("TextLabel")
+	mainLabel.Name = "Main"
+	mainLabel.Size = UDim2.new(1, 0, 1, 0)
+	mainLabel.BackgroundTransparency = 1
+	mainLabel.Text = text
+	mainLabel.TextColor3 = YELLOW
+	mainLabel.TextTransparency = 0
+	mainLabel.Font = Enum.Font.GothamBold
+	mainLabel.TextSize = fontSize
+	mainLabel.Parent = container
+
+	-- Phase 1: Scale pop-in 0→1 (0.2s Back easing)
+	local scaleIn = TweenService:Create(uiScale, POPUP_SCALE_IN, { Scale = 1 })
+	scaleIn:Play()
+
+	-- Phase 2: Float up 80px over 1s
+	local floatTarget = UDim2.new(0, screenPos.X, 0, screenPos.Y - 80)
+	local floatTween = TweenService:Create(container, POPUP_FLOAT, { Position = floatTarget })
+
+	scaleIn.Completed:Connect(function()
+		floatTween:Play()
+	end)
+
+	-- Super kiss: rainbow color cycle during float
+	if isSuper then
+		task.spawn(function()
+			local idx = 1
+			local colorInfo = TweenInfo.new(0.12, Enum.EasingStyle.Linear)
+			while container.Parent do
+				local nextColor = RAINBOW[idx]
+				TweenService:Create(mainLabel, colorInfo, { TextColor3 = nextColor }):Play()
+				idx = idx % #RAINBOW + 1
+				task.wait(0.12)
+			end
+		end)
+	end
+
+	-- Phase 3: Fade out TextTransparency 0→1 over 0.3s, then destroy
+	floatTween.Completed:Connect(function()
+		local fadeMain = TweenService:Create(mainLabel, POPUP_FADE, { TextTransparency = 1 })
+		local fadeShadow = TweenService:Create(shadowLabel, POPUP_FADE, { TextTransparency = 1 })
+		fadeMain:Play()
+		fadeShadow:Play()
+		fadeMain.Completed:Connect(function()
+			container:Destroy()
+		end)
+	end)
+end
+
+---------------------------------------------------------------------------
+-- 4. Combo Banner (center screen, slides in from top, auto-hides)
+---------------------------------------------------------------------------
+
+local function buildComboBanner()
+	comboBannerFrame = Instance.new("Frame")
+	comboBannerFrame.Name = "ComboBanner"
+	comboBannerFrame.Size = UDim2.new(0, 400, 0, 70)
+	comboBannerFrame.AnchorPoint = Vector2.new(0.5, 0)
+	comboBannerFrame.Position = UDim2.new(0.5, 0, 0, -100) -- offscreen above
+	comboBannerFrame.BackgroundColor3 = SKY_BLUE
+	comboBannerFrame.BorderSizePixel = 0
+	comboBannerFrame.Visible = false
+	comboBannerFrame.ZIndex = 5
+	comboBannerFrame.Parent = screenGui
+	corner(comboBannerFrame)
+	shadow(comboBannerFrame)
+
+	comboBannerLabel = Instance.new("TextLabel")
+	comboBannerLabel.Name = "BannerText"
+	comboBannerLabel.Size = UDim2.new(1, 0, 1, 0)
+	comboBannerLabel.BackgroundTransparency = 1
+	comboBannerLabel.Text = ""
+	comboBannerLabel.TextColor3 = WHITE
+	comboBannerLabel.Font = Enum.Font.GothamBold
+	comboBannerLabel.TextSize = 30
+	comboBannerLabel.ZIndex = 6
+	comboBannerLabel.TextStrokeTransparency = 1
+	comboBannerLabel.Parent = comboBannerFrame
+end
+
+function UIController:ShowComboBanner(comboCount)
+	if not screenGui then return end
+
+	-- Build banner lazily on first use
+	if not comboBannerFrame then
+		buildComboBanner()
+	end
+
+	-- Update text
+	comboBannerLabel.Text = tostring(comboCount) .. "x COMBO!!"
+
+	-- Color shift based on count
+	if comboCount >= 10 then
+		comboBannerLabel.TextColor3 = Color3.fromHex("#FF3030")
+		comboBannerLabel.TextStrokeColor3 = WHITE
+		comboBannerLabel.TextStrokeTransparency = 0
+	elseif comboCount >= 5 then
+		comboBannerLabel.TextColor3 = Color3.fromHex("#FF9500")
+		comboBannerLabel.TextStrokeTransparency = 1
+	else
+		comboBannerLabel.TextColor3 = WHITE
+		comboBannerLabel.TextStrokeTransparency = 1
+	end
+
+	-- Slide in: Y=-100 → Y=15% of screen
+	comboBannerFrame.Visible = true
+	comboBannerFrame.Position = UDim2.new(0.5, 0, 0, -100)
+	local targetY = UDim2.new(0.5, 0, 0.15, 0)
+	TweenService:Create(comboBannerFrame, BANNER_SLIDE_IN, { Position = targetY }):Play()
+
+	-- Cancel existing hide timer if visible (reset the 1.5s)
+	if comboBannerHideThread then
+		task.cancel(comboBannerHideThread)
+		comboBannerHideThread = nil
+	end
+
+	-- Auto-hide after 1.5s
+	comboBannerHideThread = task.delay(1.5, function()
+		comboBannerHideThread = nil
+		local slideOut = TweenService:Create(comboBannerFrame, BANNER_SLIDE_OUT, {
+			Position = UDim2.new(0.5, 0, 0, -100),
+		})
+		slideOut:Play()
+		slideOut.Completed:Connect(function()
+			comboBannerFrame.Visible = false
+		end)
+	end)
+end
+
+---------------------------------------------------------------------------
+-- 5. Milestone Banner (full width, slides down from top, holds 3s)
+---------------------------------------------------------------------------
+
+local function buildMilestoneBanner()
+	milestoneBanner = Instance.new("Frame")
+	milestoneBanner.Name = "MilestoneBanner"
+	milestoneBanner.Size = UDim2.new(1, 0, 0, 80)
+	milestoneBanner.AnchorPoint = Vector2.new(0, 0)
+	milestoneBanner.Position = UDim2.new(0, 0, 0, -80) -- offscreen above
+	milestoneBanner.BorderSizePixel = 0
+	milestoneBanner.Visible = false
+	milestoneBanner.ZIndex = 8
+	milestoneBanner.Parent = screenGui
+
+	-- Gradient background: hot pink → yellow, left to right
+	milestoneBanner.BackgroundColor3 = WHITE
+	local gradient = Instance.new("UIGradient")
+	gradient.Color = ColorSequence.new(HOT_PINK, YELLOW)
+	gradient.Rotation = 0
+	gradient.Parent = milestoneBanner
+
+	shadow(milestoneBanner)
+
+	milestoneLabel = Instance.new("TextLabel")
+	milestoneLabel.Name = "MilestoneText"
+	milestoneLabel.Size = UDim2.new(1, -32, 1, 0)
+	milestoneLabel.Position = UDim2.new(0, 16, 0, 0)
+	milestoneLabel.BackgroundTransparency = 1
+	milestoneLabel.Text = ""
+	milestoneLabel.TextColor3 = WHITE
+	milestoneLabel.TextStrokeColor3 = Color3.fromRGB(0, 0, 0)
+	milestoneLabel.TextStrokeTransparency = 0.3
+	milestoneLabel.Font = Enum.Font.GothamBold
+	milestoneLabel.TextSize = 22
+	milestoneLabel.TextWrapped = true
+	milestoneLabel.ZIndex = 9
+	milestoneLabel.Parent = milestoneBanner
+end
+
+function UIController:ShowMilestone(characterName, milestoneCount)
+	if not screenGui then return end
+
+	-- Build banner lazily on first use
+	if not milestoneBanner then
+		buildMilestoneBanner()
+	end
+
+	milestoneLabel.Text = "\xF0\x9F\x92\x8B " .. characterName .. " was kissed " .. tostring(milestoneCount) .. " times!!"
+
+	-- Slide down from Y=-80 to Y=0
+	milestoneBanner.Visible = true
+	milestoneBanner.Position = UDim2.new(0, 0, 0, -80)
+	TweenService:Create(milestoneBanner, MILESTONE_IN, {
+		Position = UDim2.new(0, 0, 0, 0),
+	}):Play()
+
+	-- Cancel existing hide timer
+	if milestoneHideThread then
+		task.cancel(milestoneHideThread)
+		milestoneHideThread = nil
+	end
+
+	-- Hold 3s then slide back up
+	milestoneHideThread = task.delay(3, function()
+		milestoneHideThread = nil
+		local slideOut = TweenService:Create(milestoneBanner, MILESTONE_OUT, {
+			Position = UDim2.new(0, 0, 0, -80),
+		})
+		slideOut:Play()
+		slideOut.Completed:Connect(function()
+			milestoneBanner.Visible = false
+		end)
+	end)
 end
 
 function UIController:GetScreenGui()

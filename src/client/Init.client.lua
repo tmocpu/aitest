@@ -72,22 +72,24 @@ remotes.KissReaction.OnClientEvent:Connect(function(characterName, reactionType,
 	localKissCount = localKissCount + 1
 	UIController:AddCoins(Config.BASE_KISS_COINS)
 
-	-- Coin popup VFX at NPC position
+	-- Screen-space kiss popup + 3D coin VFX at NPC position
 	local npcsFolder = Workspace:FindFirstChild("NPCs")
 	if npcsFolder then
 		local npcModel = npcsFolder:FindFirstChild(characterName)
 		if npcModel then
 			local body = npcModel:FindFirstChild("Body") or npcModel.PrimaryPart
 			if body then
+				UIController:SpawnKissPopup(body.Position, Config.BASE_KISS_COINS, false)
 				VFXController:SpawnCoinPopup(body.Position, Config.BASE_KISS_COINS)
 			end
 		end
 	end
 end)
 
--- Combo Update: combo display + sound + camera shake
+-- Combo Update: combo display + banner + sound + camera shake
 remotes.ComboUpdate.OnClientEvent:Connect(function(comboCount, multiplier)
 	UIController:SetCombo(comboCount)
+	UIController:ShowComboBanner(comboCount)
 	SoundController:PlayComboTick(comboCount)
 	AnimationController:OnComboUpdate(comboCount, multiplier)
 
@@ -109,13 +111,14 @@ remotes.SuperKissEvent.OnClientEvent:Connect(function(characterName, coinsAwarde
 	AnimationController:OnSuperKissEvent(characterName, coinsAwarded)
 	UIController:AddCoins(coinsAwarded)
 
-	-- Mega VFX at NPC
+	-- Screen-space super kiss popup + 3D VFX at NPC
 	local npcsFolder = Workspace:FindFirstChild("NPCs")
 	if npcsFolder then
 		local npcModel = npcsFolder:FindFirstChild(characterName)
 		if npcModel then
 			local body = npcModel:FindFirstChild("Body") or npcModel.PrimaryPart
 			if body then
+				UIController:SpawnKissPopup(body.Position, coinsAwarded, true)
 				VFXController:SpawnSuperKissVFX(body.Position)
 				VFXController:SpawnCoinPopup(body.Position + Vector3.new(0, 2, 0), coinsAwarded)
 			end
