@@ -4,6 +4,7 @@
 local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
@@ -56,10 +57,40 @@ local milestoneBanner = nil
 local milestoneLabel = nil
 local milestoneHideThread = nil
 
+-- Leaderboard refs
+local lbPanel = nil
+local lbEntriesFrame = nil
+local lbRows = {}
+
+-- Character name popup refs
+local charBillboards = {} -- [model] = { gui, frame, label, visible }
+
+-- Rarity tier → star string
+local RARITY_STARS = {
+	Common = "\xE2\xAD\x90",
+	Uncommon = "\xE2\xAD\x90\xE2\xAD\x90",
+	Rare = "\xE2\xAD\x90\xE2\xAD\x90\xE2\xAD\x90",
+	Epic = "\xE2\xAD\x90\xE2\xAD\x90\xE2\xAD\x90\xE2\xAD\x90",
+	Legendary = "\xE2\xAD\x90\xE2\xAD\x90\xE2\xAD\x90\xE2\xAD\x90",
+}
+
+-- Extra tween infos for new components
+local LB_SLIDE = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local LB_SLIDE_OUT = TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+local NAME_FADE_IN = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+local NAME_FADE_OUT = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+-- Rank colors
+local GOLD = Color3.fromHex("#FFD700")
+local SILVER = Color3.fromHex("#C0C0C0")
+local BRONZE = Color3.fromHex("#CD7F32")
+local LIGHT_BLUE = Color3.fromRGB(220, 240, 255)
+
 -- State
 local displayedCoins = 0
 local currentCombo = 0
 local comboVisible = false
+local heartbeatConn = nil
 
 ---------------------------------------------------------------------------
 -- Helpers
@@ -270,55 +301,6 @@ function UIController:Init()
 	buildComboDisplay()
 end
 
-function UIController:Start()
-	local remotesFolder = ReplicatedStorage:WaitForChild("Remotes", 15)
-	if not remotesFolder then
-		warn("[UIController] Remotes folder not found")
-		return
-	end
-
-	-- KissReaction: pop the coin counter (coins added externally via :AddCoins)
-	local kissReaction = remotesFolder:FindFirstChild("KissReaction")
-	if kissReaction then
-		kissReaction.OnClientEvent:Connect(function(_characterName, _reactionType, _globalCount)
-			-- Coin amount is handled by :AddCoins called from Init.client.lua
-		end)
-	end
-
-	-- ComboUpdate
-	local comboUpdate = remotesFolder:FindFirstChild("ComboUpdate")
-	if comboUpdate then
-		comboUpdate.OnClientEvent:Connect(function(comboCount, _multiplier)
-			self:SetCombo(comboCount)
-		end)
-	end
-
-	-- SuperKissEvent
-	local superKiss = remotesFolder:FindFirstChild("SuperKissEvent")
-	if superKiss then
-		superKiss.OnClientEvent:Connect(function(_characterName, _coinsAwarded)
-			-- Super kiss visuals handled by other controllers;
-			-- coin addition handled via :AddCoins
-		end)
-	end
-
-	-- LeaderboardUpdate
-	local lbUpdate = remotesFolder:FindFirstChild("LeaderboardUpdate")
-	if lbUpdate then
-		lbUpdate.OnClientEvent:Connect(function(topKissers)
-			self:UpdateLeaderboard(topKissers)
-		end)
-	end
-
-	-- MilestoneAnnouncement
-	local milestone = remotesFolder:FindFirstChild("MilestoneAnnouncement")
-	if milestone then
-		milestone.OnClientEvent:Connect(function(characterName, milestoneCount)
-			self:ShowMilestone(characterName, milestoneCount)
-		end)
-	end
-end
-
 function UIController:AddCoins(amount)
 	displayedCoins = displayedCoins + amount
 
@@ -350,13 +332,210 @@ function UIController:SetCombo(count)
 	end
 end
 
-function UIController.toggleLeaderboard()
-	leaderboardOpen = not leaderboardOpen
-	-- Leaderboard panel built in a later phase; this is the hook point
+---------------------------------------------------------------------------
+-- 6. Leaderboard Panel (slides from right, toggle, top 10)
+---------------------------------------------------------------------------
+
+local function buildLeaderboardPanel()
+	lbPanel = Instance.new("Frame")
+	lbPanel.Name = "LeaderboardPanel"
+	lbPanel.Size = UDim2.new(0, 300, 0, 420)
+	lbPanel.AnchorPoint = Vector2.new(1, 0)
+	lbPanel.Position = UDim2.new(1.05, 0, 0, 80) -- offscreen right
+	lbPanel.BackgroundColor3 = SKY_BLUE
+	lbPanel.BorderSizePixel = 0
+	lbPanel.ZIndex = 12
+	lbPanel.Parent = screenGui
+	corner(lbPanel)
+
+	-- Dark border stroke
+	local darkStroke = Instance.new("UIStroke")
+	darkStroke.Color = Color3.fromRGB(30, 30, 60)
+	darkStroke.Thickness = 3
+	darkStroke.Transparency = 0.2
+	darkStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	darkStroke.Parent = lbPanel
+
+	-- Header
+	local header = Instance.new("TextLabel")
+	header.Name = "Header"
+	header.Size = UDim2.new(1, -50, 0, 44)
+	header.Position = UDim2.new(0, 12, 0, 6)
+	header.BackgroundTransparency = 1
+	header.Text = "\xF0\x9F\x8F\x86 TOP KISSERS"
+	header.TextColor3 = HOT_PINK
+	header.Font = Enum.Font.GothamBold
+	header.TextSize = 20
+	header.TextXAlignment = Enum.TextXAlignment.Left
+	header.ZIndex = 13
+	header.Parent = lbPanel
+
+	-- Close button: yellow circle, top right
+	local closeBtn = Instance.new("TextButton")
+	closeBtn.Name = "CloseBtn"
+	closeBtn.Size = UDim2.new(0, 30, 0, 30)
+	closeBtn.Position = UDim2.new(1, -38, 0, 10)
+	closeBtn.BackgroundColor3 = YELLOW
+	closeBtn.BorderSizePixel = 0
+	closeBtn.Text = "\xE2\x9C\x95"
+	closeBtn.TextColor3 = Color3.fromRGB(60, 60, 60)
+	closeBtn.TextSize = 16
+	closeBtn.Font = Enum.Font.GothamBold
+	closeBtn.AutoButtonColor = false
+	closeBtn.ZIndex = 14
+	closeBtn.Parent = lbPanel
+
+	local closeBtnCorner = Instance.new("UICorner")
+	closeBtnCorner.CornerRadius = UDim.new(0.5, 0)
+	closeBtnCorner.Parent = closeBtn
+
+	closeBtn.MouseButton1Click:Connect(function()
+		popScale(closeBtn)
+		UIController.toggleLeaderboard()
+	end)
+
+	-- Entries scrolling frame
+	lbEntriesFrame = Instance.new("Frame")
+	lbEntriesFrame.Name = "Entries"
+	lbEntriesFrame.Size = UDim2.new(1, -16, 1, -56)
+	lbEntriesFrame.Position = UDim2.new(0, 8, 0, 50)
+	lbEntriesFrame.BackgroundTransparency = 1
+	lbEntriesFrame.ZIndex = 13
+	lbEntriesFrame.Parent = lbPanel
+
+	local layout = Instance.new("UIListLayout")
+	layout.Padding = UDim.new(0, 2)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.Parent = lbEntriesFrame
 end
 
-function UIController:UpdateLeaderboard(_topKissers)
-	-- Leaderboard panel built in a later phase
+function UIController.toggleLeaderboard()
+	if not lbPanel then
+		buildLeaderboardPanel()
+	end
+
+	leaderboardOpen = not leaderboardOpen
+
+	if leaderboardOpen then
+		-- Slide in from X=1.05 to X=0.72
+		TweenService:Create(lbPanel, LB_SLIDE, {
+			Position = UDim2.new(0.72, 0, 0, 80),
+		}):Play()
+	else
+		-- Slide out to X=1.05
+		TweenService:Create(lbPanel, LB_SLIDE_OUT, {
+			Position = UDim2.new(1.05, 0, 0, 80),
+		}):Play()
+	end
+end
+
+function UIController:UpdateLeaderboard(topKissers)
+	if not lbPanel then
+		buildLeaderboardPanel()
+	end
+
+	-- Clear old rows
+	for _, row in ipairs(lbRows) do
+		if row and row.Parent then
+			row:Destroy()
+		end
+	end
+	lbRows = {}
+
+	if not topKissers or #topKissers == 0 then
+		local empty = Instance.new("TextLabel")
+		empty.Name = "Empty"
+		empty.Size = UDim2.new(1, 0, 0, 60)
+		empty.BackgroundTransparency = 1
+		empty.Text = "No kisses yet!"
+		empty.TextColor3 = WHITE
+		empty.Font = Enum.Font.GothamBold
+		empty.TextSize = 16
+		empty.LayoutOrder = 1
+		empty.ZIndex = 14
+		empty.Parent = lbEntriesFrame
+		table.insert(lbRows, empty)
+		return
+	end
+
+	for i, entry in ipairs(topKissers) do
+		if i > 10 then break end
+
+		local row = Instance.new("Frame")
+		row.Name = "Row_" .. i
+		row.Size = UDim2.new(1, -4, 0, 34)
+		row.LayoutOrder = i
+		row.BorderSizePixel = 0
+		row.ZIndex = 14
+		row.Parent = lbEntriesFrame
+		corner(row)
+
+		-- Alternating bg colors
+		if i % 2 == 1 then
+			row.BackgroundColor3 = WHITE
+			row.BackgroundTransparency = 0.15
+		else
+			row.BackgroundColor3 = LIGHT_BLUE
+			row.BackgroundTransparency = 0.15
+		end
+
+		-- Rank color
+		local rankColor = WHITE
+		local rankPrefix = ""
+		if i == 1 then
+			rankColor = GOLD
+			rankPrefix = "\xF0\x9F\x91\x91 "
+		elseif i == 2 then
+			rankColor = SILVER
+		elseif i == 3 then
+			rankColor = BRONZE
+		end
+
+		-- Rank label
+		local rankLabel = Instance.new("TextLabel")
+		rankLabel.Name = "Rank"
+		rankLabel.Size = UDim2.new(0, 44, 1, 0)
+		rankLabel.Position = UDim2.new(0, 4, 0, 0)
+		rankLabel.BackgroundTransparency = 1
+		rankLabel.Text = rankPrefix .. "#" .. tostring(i)
+		rankLabel.TextColor3 = rankColor
+		rankLabel.Font = Enum.Font.GothamBold
+		rankLabel.TextSize = 14
+		rankLabel.TextXAlignment = Enum.TextXAlignment.Left
+		rankLabel.ZIndex = 15
+		rankLabel.Parent = row
+
+		-- Player name
+		local nameLabel = Instance.new("TextLabel")
+		nameLabel.Name = "PlayerName"
+		nameLabel.Size = UDim2.new(1, -120, 1, 0)
+		nameLabel.Position = UDim2.new(0, 50, 0, 0)
+		nameLabel.BackgroundTransparency = 1
+		nameLabel.Text = entry.Name or "???"
+		nameLabel.TextColor3 = Color3.fromRGB(40, 40, 60)
+		nameLabel.Font = Enum.Font.GothamBold
+		nameLabel.TextSize = 13
+		nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+		nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+		nameLabel.ZIndex = 15
+		nameLabel.Parent = row
+
+		-- Kiss count
+		local countLabel = Instance.new("TextLabel")
+		countLabel.Name = "KissCount"
+		countLabel.Size = UDim2.new(0, 60, 1, 0)
+		countLabel.Position = UDim2.new(1, -64, 0, 0)
+		countLabel.BackgroundTransparency = 1
+		countLabel.Text = tostring(entry.TotalKisses or 0)
+		countLabel.TextColor3 = HOT_PINK
+		countLabel.Font = Enum.Font.GothamBold
+		countLabel.TextSize = 14
+		countLabel.TextXAlignment = Enum.TextXAlignment.Right
+		countLabel.ZIndex = 15
+		countLabel.Parent = row
+
+		table.insert(lbRows, row)
+	end
 end
 
 ---------------------------------------------------------------------------
@@ -611,6 +790,233 @@ function UIController:ShowMilestone(characterName, milestoneCount)
 			milestoneBanner.Visible = false
 		end)
 	end)
+end
+
+---------------------------------------------------------------------------
+-- 7. Character Name Popup (BillboardGui, proximity-based fade)
+---------------------------------------------------------------------------
+
+local function getRarityStars(model)
+	-- Try to read rarity from a StringValue, else infer from CharacterService defs
+	local rarityVal = model:FindFirstChild("RarityTier")
+	if rarityVal and rarityVal:IsA("StringValue") then
+		return RARITY_STARS[rarityVal.Value] or RARITY_STARS.Common
+	end
+	-- Fallback: look up from a hardcoded client-side table
+	local name = model.Name
+	local nameVal = model:FindFirstChild("CharacterName")
+	if nameVal and nameVal:IsA("StringValue") then
+		name = nameVal.Value
+	end
+
+	local rarityMap = {
+		["Tralalero Tralala"] = "Common",
+		["Bombardino Coccodrillo"] = "Common",
+		["Tung Tung Tung Sahur"] = "Uncommon",
+		["Brr Brr Patapim"] = "Uncommon",
+		["Cappuccino Assassino"] = "Rare",
+		["Ballerina Cappuccina"] = "Rare",
+		["Pizzicato Pangolino"] = "Common",
+		["Bombardino Bufalo"] = "Uncommon",
+		["Trombettino Tartaruga"] = "Common",
+		["Cappellino Capibara"] = "Common",
+		["Fischietto Fenicottero"] = "Uncommon",
+		["Urlando Unicorno"] = "Rare",
+		["Saltellino Salamandra"] = "Uncommon",
+		["Magnifico Macarone"] = "Rare",
+	}
+	return RARITY_STARS[rarityMap[name] or "Common"] or RARITY_STARS.Common
+end
+
+local function createCharBillboard(model)
+	local head = model:FindFirstChild("Head")
+	if not head then return nil end
+
+	local nameVal = model:FindFirstChild("CharacterName")
+	local charName = nameVal and nameVal:IsA("StringValue") and nameVal.Value or model.Name
+	local stars = getRarityStars(model)
+
+	local gui = Instance.new("BillboardGui")
+	gui.Name = "CharNamePopup"
+	gui.Adornee = head
+	gui.Size = UDim2.new(0, 160, 0, 40)
+	gui.StudsOffset = Vector3.new(0, 3.5, 0)
+	gui.AlwaysOnTop = false
+	gui.Active = false
+	gui.Parent = model
+
+	local frame = Instance.new("Frame")
+	frame.Name = "Bg"
+	frame.Size = UDim2.new(1, 0, 1, 0)
+	frame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+	frame.BackgroundTransparency = 1 -- start invisible
+	frame.Parent = gui
+	corner(frame)
+
+	local label = Instance.new("TextLabel")
+	label.Name = "NameLabel"
+	label.Size = UDim2.new(1, -8, 1, 0)
+	label.Position = UDim2.new(0, 4, 0, 0)
+	label.BackgroundTransparency = 1
+	label.Text = charName .. " " .. stars
+	label.TextColor3 = WHITE
+	label.Font = Enum.Font.GothamBold
+	label.TextSize = 14
+	label.TextTransparency = 1 -- start invisible
+	label.TextScaled = false
+	label.Parent = frame
+
+	local data = {
+		gui = gui,
+		frame = frame,
+		label = label,
+		visible = false,
+		head = head,
+	}
+	charBillboards[model] = data
+	return data
+end
+
+local function setupCharNamePopups()
+	local npcsFolder = Workspace:FindFirstChild("NPCs")
+	if not npcsFolder then return end
+
+	-- Create billboards for all existing NPCs
+	for _, model in ipairs(npcsFolder:GetChildren()) do
+		if model:IsA("Model") and model:FindFirstChild("Head") then
+			-- Skip if billboard already exists (e.g. the ModelService nametag)
+			local existing = model:FindFirstChild("CharNamePopup")
+			if not existing then
+				createCharBillboard(model)
+			end
+		end
+	end
+
+	-- Listen for new NPCs
+	npcsFolder.ChildAdded:Connect(function(model)
+		if model:IsA("Model") then
+			task.wait(0.1) -- let parts replicate
+			if model:FindFirstChild("Head") and not model:FindFirstChild("CharNamePopup") then
+				createCharBillboard(model)
+			end
+		end
+	end)
+end
+
+local function runProximityCheck()
+	heartbeatConn = RunService.Heartbeat:Connect(function()
+		local character = player.Character
+		if not character then return end
+		local hrp = character:FindFirstChild("HumanoidRootPart")
+		if not hrp then return end
+		local playerPos = hrp.Position
+
+		for model, data in pairs(charBillboards) do
+			if not model.Parent then
+				-- Model was removed; clean up
+				charBillboards[model] = nil
+				continue
+			end
+
+			local head = data.head
+			if not head or not head.Parent then continue end
+
+			local dist = (playerPos - head.Position).Magnitude
+
+			if dist < 12 and not data.visible then
+				-- Fade in
+				data.visible = true
+				TweenService:Create(data.frame, NAME_FADE_IN, { BackgroundTransparency = 0.4 }):Play()
+				TweenService:Create(data.label, NAME_FADE_IN, { TextTransparency = 0 }):Play()
+			elseif dist > 14 and data.visible then
+				-- Fade out
+				data.visible = false
+				TweenService:Create(data.frame, NAME_FADE_OUT, { BackgroundTransparency = 1 }):Play()
+				TweenService:Create(data.label, NAME_FADE_OUT, { TextTransparency = 1 }):Play()
+			end
+		end
+	end)
+end
+
+---------------------------------------------------------------------------
+-- 8. Final :Start() — wire all remotes with pcall
+---------------------------------------------------------------------------
+
+function UIController:Start()
+	local remotesFolder = ReplicatedStorage:WaitForChild("Remotes", 15)
+	if not remotesFolder then
+		warn("[UIController] Remotes folder not found")
+		return
+	end
+
+	-- KissReaction → spawnKissPopup (normal) + trigger combo check
+	local kissReaction = remotesFolder:FindFirstChild("KissReaction")
+	if kissReaction then
+		kissReaction.OnClientEvent:Connect(function(characterName, _reactionType, _globalCount)
+			pcall(function()
+				local npcsFolder = Workspace:FindFirstChild("NPCs")
+				if not npcsFolder then return end
+				local npcModel = npcsFolder:FindFirstChild(characterName)
+				if not npcModel then return end
+				local body = npcModel:FindFirstChild("Body") or npcModel.PrimaryPart
+				if not body then return end
+				self:SpawnKissPopup(body.Position, 10, false)
+			end)
+		end)
+	end
+
+	-- ComboUpdate → showComboBanner + updateComboDisplay
+	local comboUpdate = remotesFolder:FindFirstChild("ComboUpdate")
+	if comboUpdate then
+		comboUpdate.OnClientEvent:Connect(function(comboCount, _multiplier)
+			pcall(function()
+				self:SetCombo(comboCount)
+				self:ShowComboBanner(comboCount)
+			end)
+		end)
+	end
+
+	-- SuperKissEvent → spawnKissPopup(isSuper=true)
+	local superKiss = remotesFolder:FindFirstChild("SuperKissEvent")
+	if superKiss then
+		superKiss.OnClientEvent:Connect(function(characterName, coinsAwarded)
+			pcall(function()
+				local npcsFolder = Workspace:FindFirstChild("NPCs")
+				if not npcsFolder then return end
+				local npcModel = npcsFolder:FindFirstChild(characterName)
+				if not npcModel then return end
+				local body = npcModel:FindFirstChild("Body") or npcModel.PrimaryPart
+				if not body then return end
+				self:SpawnKissPopup(body.Position, coinsAwarded, true)
+			end)
+		end)
+	end
+
+	-- LeaderboardUpdate → updateLeaderboard
+	local lbUpdate = remotesFolder:FindFirstChild("LeaderboardUpdate")
+	if lbUpdate then
+		lbUpdate.OnClientEvent:Connect(function(topKissers)
+			pcall(function()
+				self:UpdateLeaderboard(topKissers)
+			end)
+		end)
+	end
+
+	-- MilestoneAnnouncement → showMilestoneBanner
+	local milestone = remotesFolder:FindFirstChild("MilestoneAnnouncement")
+	if milestone then
+		milestone.OnClientEvent:Connect(function(characterName, milestoneCount)
+			pcall(function()
+				self:ShowMilestone(characterName, milestoneCount)
+			end)
+		end)
+	end
+
+	-- Setup character name popups and start proximity heartbeat
+	pcall(setupCharNamePopups)
+	pcall(runProximityCheck)
+
+	print("[UIController] loaded \xE2\x9C\x93")
 end
 
 function UIController:GetScreenGui()
