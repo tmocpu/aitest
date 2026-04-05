@@ -1,5 +1,5 @@
--- Test Runner for Brainrot Kiss Game
--- Runs all test cases and reports results
+-- Test Runner for Kiss the Brainrot
+-- 8 test cases covering core gameplay systems
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
@@ -64,16 +64,12 @@ local function expect(value)
 	}
 end
 
--- Mock player for testing
+-- Mock player
 local function createMockPlayer(name, position)
-	local mockHRP = {
-		Position = position or Vector3.new(0, 0, 0),
-	}
+	local mockHRP = { Position = position or Vector3.new(0, 0, 0) }
 	local mockCharacter = {
 		FindFirstChild = function(_, childName)
-			if childName == "HumanoidRootPart" then
-				return mockHRP
-			end
+			if childName == "HumanoidRootPart" then return mockHRP end
 			return nil
 		end,
 	}
@@ -84,7 +80,7 @@ local function createMockPlayer(name, position)
 	}
 end
 
--- Initialize services for testing
+-- Initialize services for testing (same order as Init.server.lua)
 RemoteService:Init()
 DataService:Init()
 CharacterService:Init()
@@ -96,48 +92,48 @@ LeaderboardService:SetServices(DataService, RemoteService)
 KissService:SetServices(DataService, CharacterService, RemoteService, LeaderboardService)
 
 print("\n========================================")
-print("  BRAINROT KISS GAME - TEST SUITE")
+print("  KISS THE BRAINROT - TEST SUITE")
 print("========================================")
 
--- TEST 1: KissService rejects kiss from out of range player
+-- TEST 1: Proximity check rejects far player
 describe("KissService - Proximity Check", function()
 	it("should reject kiss from out of range player", function()
-		-- Create a mock NPC in workspace for testing
-		local workspace = game:GetService("Workspace")
-		local npcsFolder = workspace:FindFirstChild("NPCs")
+		local ws = game:GetService("Workspace")
+		local npcsFolder = ws:FindFirstChild("NPCs")
 		if not npcsFolder then
 			npcsFolder = Instance.new("Folder")
 			npcsFolder.Name = "NPCs"
-			npcsFolder.Parent = workspace
+			npcsFolder.Parent = ws
 		end
 
-		local npcModel = npcsFolder:FindFirstChild("Tralalero Tralala")
+		-- Place NPC far away at (100,0,100)
+		local testChar = "Tralalero Tralala"
+		local npcModel = npcsFolder:FindFirstChild(testChar)
 		if not npcModel then
 			npcModel = Instance.new("Model")
-			npcModel.Name = "Tralalero Tralala"
+			npcModel.Name = testChar
 			local part = Instance.new("Part")
 			part.Name = "HumanoidRootPart"
 			part.Position = Vector3.new(100, 0, 100)
 			part.Parent = npcModel
 			npcModel.PrimaryPart = part
 			npcModel.Parent = npcsFolder
+		else
+			local hrp = npcModel:FindFirstChild("HumanoidRootPart") or npcModel.PrimaryPart
+			if hrp then hrp.Position = Vector3.new(100, 0, 100) end
 		end
 
-		-- Player far away at origin
 		local farPlayer = createMockPlayer("FarPlayer", Vector3.new(0, 0, 0))
-
-		local valid, reason = KissService:ValidateKiss(farPlayer, "Tralalero Tralala")
+		local valid, reason = KissService:ValidateKiss(farPlayer, testChar)
 		expect(valid):toBeFalse()
 		expect(reason):toBe("Too far away")
 	end)
 end)
 
--- TEST 2: KissService rejects kiss during cooldown
+-- TEST 2: Cooldown check rejects recent kisser
 describe("KissService - Cooldown Check", function()
 	it("should reject kiss during cooldown", function()
 		local player = createMockPlayer("CooldownPlayer")
-
-		-- Simulate a recent kiss by setting cooldown
 		local cooldowns = KissService:_GetPlayerCooldowns()
 		cooldowns[player] = tick()
 
@@ -145,161 +141,119 @@ describe("KissService - Cooldown Check", function()
 		expect(valid):toBeFalse()
 		expect(reason):toBe("Cooldown active")
 
-		-- Cleanup
 		cooldowns[player] = nil
 	end)
 end)
 
--- TEST 3: Combo increments correctly within window, resets after
+-- TEST 3: Combo system increments and resets correctly
 describe("KissService - Combo System", function()
 	it("should increment combo within window and reset after", function()
 		local combos = KissService:_GetPlayerCombos()
 		local player = createMockPlayer("ComboPlayer")
 
-		-- Simulate combo within window
+		-- Within window: should increment
 		combos[player] = { count = 3, lastKissTime = tick() }
-
-		-- Process combo check logic (simulating what ProcessKiss does)
 		local now = tick()
 		local combo = combos[player]
 		local withinWindow = (now - combo.lastKissTime) <= Config.COMBO_WINDOW
-
 		expect(withinWindow):toBeTrue()
 
-		-- Increment
-		if withinWindow then
-			combo.count = combo.count + 1
-			combo.lastKissTime = now
-		end
+		combo.count = combo.count + 1
+		combo.lastKissTime = now
 		expect(combo.count):toBe(4)
 
-		-- Simulate expired combo
+		-- Expired: should reset
 		combos[player] = { count = 5, lastKissTime = tick() - Config.COMBO_WINDOW - 1 }
 		combo = combos[player]
 		local expired = (tick() - combo.lastKissTime) > Config.COMBO_WINDOW
 		expect(expired):toBeTrue()
 
-		-- Reset on expired
-		if expired then
-			combos[player] = { count = 1, lastKissTime = tick() }
-		end
+		combos[player] = { count = 1, lastKissTime = tick() }
 		expect(combos[player].count):toBe(1)
 
-		-- Cleanup
 		combos[player] = nil
 	end)
 end)
 
--- TEST 4: Super Kiss multiplier applies correctly
+-- TEST 4: Super Kiss gives 10x multiplier
 describe("KissService - Super Kiss Multiplier", function()
 	it("should apply 10x multiplier for super kiss", function()
-		local baseCoins = Config.BASE_KISS_COINS
-		local comboMultiplier = 1
-
-		-- Normal kiss
-		local normalCoins = baseCoins * comboMultiplier * 1
-		expect(normalCoins):toBe(10)
-
-		-- Super kiss
-		local superCoins = baseCoins * comboMultiplier * 10
-		expect(superCoins):toBe(100)
-
-		-- Super kiss with combo
-		comboMultiplier = 5
-		local superComboCoins = baseCoins * comboMultiplier * 10
-		expect(superComboCoins):toBe(500)
+		local base = Config.BASE_KISS_COINS
+		expect(base * 1 * 1):toBe(10)   -- normal, no combo
+		expect(base * 1 * 10):toBe(100)  -- super, no combo
+		expect(base * 5 * 10):toBe(500)  -- super, 5x combo
 	end)
 end)
 
--- TEST 5: DataService schema fills missing fields with defaults
+-- TEST 5: DataService fills missing fields with defaults
 describe("DataService - Default Schema", function()
 	it("should fill missing fields with defaults", function()
 		local defaults = DataService:GetDefaultData()
-
 		expect(defaults.TotalKisses):toBe(0)
 		expect(defaults.HighestCombo):toBe(0)
 		expect(defaults.CoinsEarned):toBe(0)
 		expect(defaults.FavoriteCharacter):toBe("")
 		expect(type(defaults.KissHistory)):toBe("table")
 
-		-- Simulate partial data (as if loaded from DataStore)
-		local partialData = { TotalKisses = 50 }
+		-- Merge partial data
+		local partial = { TotalKisses = 50 }
 		local merged = DataService:GetDefaultData()
-		for field, value in pairs(partialData) do
-			merged[field] = value
-		end
-
+		for k, v in pairs(partial) do merged[k] = v end
 		expect(merged.TotalKisses):toBe(50)
-		expect(merged.HighestCombo):toBe(0) -- filled with default
-		expect(merged.CoinsEarned):toBe(0)  -- filled with default
+		expect(merged.HighestCombo):toBe(0)
+		expect(merged.CoinsEarned):toBe(0)
 	end)
 end)
 
--- TEST 6: LeaderboardService returns correctly sorted top 10
+-- TEST 6: LeaderboardService returns max 10 entries
 describe("LeaderboardService - Sorted Top 10", function()
 	it("should return correctly sorted top 10", function()
-		-- The leaderboard uses an OrderedDataStore which sorts automatically.
-		-- We test the GetTopKissers limiting logic.
-		-- Manually populate the cached data via the service.
-
-		-- Access internal cache for testing by calling GetTopKissers
-		-- Since no DataStore data exists in test, it should return empty
 		local top = LeaderboardService:GetTopKissers()
 		expect(type(top)):toBe("table")
 		expect(#top <= 10):toBeTrue()
 	end)
 end)
 
--- TEST 7: Rate limiter blocks player after 20 requests in 10s
+-- TEST 7: Rate limiter blocks after max requests
 describe("RateLimiter - Rate Limiting", function()
 	it("should block player after max requests in window", function()
 		local limiter = RateLimiter.new()
 		local player = createMockPlayer("RateLimitPlayer")
 
-		-- Should not be rate limited initially
 		expect(limiter:IsRateLimited(player)):toBeFalse()
 
-		-- Record max requests
-		for i = 1, Config.RATE_LIMIT_MAX do
+		for _ = 1, Config.RATE_LIMIT_MAX do
 			limiter:RecordRequest(player)
 		end
 
-		-- Should now be rate limited
 		expect(limiter:IsRateLimited(player)):toBeTrue()
 
-		-- Cleanup
 		limiter:CleanupPlayer(player)
 		expect(limiter:IsRateLimited(player)):toBeFalse()
 	end)
 end)
 
--- TEST 8: CharacterService milestone fires at correct global kiss count
+-- TEST 8: CharacterService milestone fires at correct count
 describe("CharacterService - Milestones", function()
 	it("should fire milestone at correct global kiss count", function()
 		local milestonesFired = {}
-
-		-- Override BroadcastMilestone for testing
 		local originalBroadcast = CharacterService.BroadcastMilestone
-		CharacterService.BroadcastMilestone = function(self, characterName, milestone)
+		CharacterService.BroadcastMilestone = function(_, characterName, milestone)
 			table.insert(milestonesFired, { character = characterName, milestone = milestone })
 		end
 
-		-- Kiss character up to milestone
 		local charName = "Bombardino Coccodrillo"
 		local char = CharacterService:GetCharacter(charName)
-		-- Reset kiss count for clean test
 		char.KissCount = 0
 
-		for i = 1, Config.MILESTONE_INTERVAL do
+		for _ = 1, Config.MILESTONE_INTERVAL do
 			CharacterService:IncrementKissCount(charName)
 		end
 
-		-- Should have fired exactly one milestone
 		expect(#milestonesFired):toBe(1)
 		expect(milestonesFired[1].character):toBe(charName)
 		expect(milestonesFired[1].milestone):toBe(Config.MILESTONE_INTERVAL)
 
-		-- Restore original
 		CharacterService.BroadcastMilestone = originalBroadcast
 	end)
 end)
@@ -316,4 +270,6 @@ if failed > 0 then
 			print("  - " .. result.name .. ": " .. result.error)
 		end
 	end
+else
+	print("ALL TESTS PASSED!")
 end

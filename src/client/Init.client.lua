@@ -1,5 +1,5 @@
--- Client Bootstrap
--- Initializes all client controllers and wires them to server remotes
+-- Client Bootstrap — Kiss the Brainrot
+-- Loads all controllers, wires all remotes with pcall safety
 
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Players = game:GetService("Players")
@@ -10,7 +10,7 @@ local Config = require(Shared:WaitForChild("Modules"):WaitForChild("Config"))
 
 local player = Players.LocalPlayer
 
--- Wait for remotes folder
+-- Wait for remotes
 local remotesFolder = ReplicatedStorage:WaitForChild("Remotes", 15)
 if not remotesFolder then
 	warn("[Client] Remotes folder not found!")
@@ -24,6 +24,7 @@ local remotes = {
 	SuperKissEvent = remotesFolder:WaitForChild("SuperKissEvent"),
 	LeaderboardUpdate = remotesFolder:WaitForChild("LeaderboardUpdate"),
 	MilestoneAnnouncement = remotesFolder:WaitForChild("MilestoneAnnouncement"),
+	CoinsUpdate = remotesFolder:WaitForChild("CoinsUpdate"),
 }
 
 -- Load controllers
@@ -35,120 +36,125 @@ local LeaderboardController = require(Controllers:WaitForChild("LeaderboardContr
 local KissController = require(Controllers:WaitForChild("KissController"))
 local AnimationController = require(Controllers:WaitForChild("AnimationController"))
 
--- Initialize all controllers
-print("[Client] Initializing controllers...")
+print("====================================")
+print("  KISS THE BRAINROT - CLIENT START")
+print("====================================")
 
+-- Init controllers in order
 SoundController:Init()
-print("[Client] SoundController initialized")
+print("  [+] SoundController")
 
 VFXController:Init()
-print("[Client] VFXController initialized")
+print("  [+] VFXController")
 
 UIController:Init()
 UIController:Start()
-print("[Client] UIController initialized")
+print("  [+] UIController")
 
--- LeaderboardController gets the HUD's ScreenGui
 local hudGui = UIController:GetScreenGui()
 LeaderboardController:Init(hudGui)
-print("[Client] LeaderboardController initialized")
+print("  [+] LeaderboardController")
 
 AnimationController:Init()
-print("[Client] AnimationController initialized")
+print("  [+] AnimationController")
 
--- KissController gets remotes + other controllers for immediate feedback
 KissController:Init(remotes, VFXController, SoundController)
-print("[Client] KissController initialized")
+print("  [+] KissController")
 
--- Track total kisses locally
-local localKissCount = 0
+-- Helper: find NPC body part by name
+local function findNPCBody(characterName)
+	local npcsFolder = Workspace:FindFirstChild("NPCs")
+	if not npcsFolder then return nil end
+	local npcModel = npcsFolder:FindFirstChild(characterName)
+	if not npcModel then return nil end
+	return npcModel:FindFirstChild("Body") or npcModel.PrimaryPart
+end
 
--- Wire up remote events to controllers --
+---------------------------------------------------------------------------
+-- Wire remote events (all wrapped in pcall)
+---------------------------------------------------------------------------
 
--- Kiss Reaction: show reaction popup + VFX + NPC animation + coins
+-- CoinsUpdate: server sends starting coins on join
+remotes.CoinsUpdate.OnClientEvent:Connect(function(startingCoins)
+	pcall(function()
+		UIController:AddCoins(startingCoins)
+	end)
+end)
+
+-- KissReaction: NPC animation + kiss popup + coins
 remotes.KissReaction.OnClientEvent:Connect(function(characterName, reactionType, globalCount)
-	AnimationController:OnKissReaction(characterName, reactionType, globalCount)
+	pcall(function()
+		AnimationController:OnKissReaction(characterName, reactionType, globalCount)
+		UIController:AddCoins(Config.BASE_KISS_COINS)
 
-	localKissCount = localKissCount + 1
-	UIController:AddCoins(Config.BASE_KISS_COINS)
-
-	-- Screen-space kiss popup + 3D coin VFX at NPC position
-	local npcsFolder = Workspace:FindFirstChild("NPCs")
-	if npcsFolder then
-		local npcModel = npcsFolder:FindFirstChild(characterName)
-		if npcModel then
-			local body = npcModel:FindFirstChild("Body") or npcModel.PrimaryPart
-			if body then
-				UIController:SpawnKissPopup(body.Position, Config.BASE_KISS_COINS, false)
-				VFXController:SpawnCoinPopup(body.Position, Config.BASE_KISS_COINS)
-			end
+		local body = findNPCBody(characterName)
+		if body then
+			UIController:SpawnKissPopup(body.Position, Config.BASE_KISS_COINS, false)
+			VFXController:SpawnCoinPopup(body.Position, Config.BASE_KISS_COINS)
 		end
-	end
+	end)
 end)
 
--- Combo Update: combo display + banner + sound + camera shake
+-- ComboUpdate: combo HUD + banner + sound + camera shake
 remotes.ComboUpdate.OnClientEvent:Connect(function(comboCount, multiplier)
-	UIController:SetCombo(comboCount)
-	UIController:ShowComboBanner(comboCount)
-	SoundController:PlayComboTick(comboCount)
-	AnimationController:OnComboUpdate(comboCount, multiplier)
+	pcall(function()
+		UIController:SetCombo(comboCount)
+		UIController:ShowComboBanner(comboCount)
+		SoundController:PlayComboTick(comboCount)
+		AnimationController:OnComboUpdate(comboCount, multiplier)
 
-	-- Extra VFX at high combos
-	if comboCount >= 5 then
-		local nearest = KissController:GetNearestCharacter()
-		if nearest then
-			local body = nearest:FindFirstChild("Body") or nearest.PrimaryPart
-			if body then
-				VFXController:SpawnSparkles(body.Position)
+		if comboCount >= 5 then
+			local nearest = KissController:GetNearestCharacter()
+			if nearest then
+				local body = nearest:FindFirstChild("Body") or nearest.PrimaryPart
+				if body then
+					VFXController:SpawnSparkles(body.Position)
+				end
 			end
 		end
-	end
+	end)
 end)
 
--- Super Kiss: celebration + flash + camera shake
+-- SuperKissEvent: celebration VFX + popup + coins
 remotes.SuperKissEvent.OnClientEvent:Connect(function(characterName, coinsAwarded)
-	SoundController:PlaySuperKiss()
-	AnimationController:OnSuperKissEvent(characterName, coinsAwarded)
-	UIController:AddCoins(coinsAwarded)
+	pcall(function()
+		SoundController:PlaySuperKiss()
+		AnimationController:OnSuperKissEvent(characterName, coinsAwarded)
+		UIController:AddCoins(coinsAwarded)
 
-	-- Screen-space super kiss popup + 3D VFX at NPC
-	local npcsFolder = Workspace:FindFirstChild("NPCs")
-	if npcsFolder then
-		local npcModel = npcsFolder:FindFirstChild(characterName)
-		if npcModel then
-			local body = npcModel:FindFirstChild("Body") or npcModel.PrimaryPart
-			if body then
-				UIController:SpawnKissPopup(body.Position, coinsAwarded, true)
-				VFXController:SpawnSuperKissVFX(body.Position)
-				VFXController:SpawnCoinPopup(body.Position + Vector3.new(0, 2, 0), coinsAwarded)
-			end
+		local body = findNPCBody(characterName)
+		if body then
+			UIController:SpawnKissPopup(body.Position, coinsAwarded, true)
+			VFXController:SpawnSuperKissVFX(body.Position)
+			VFXController:SpawnCoinPopup(body.Position + Vector3.new(0, 2, 0), coinsAwarded)
 		end
-	end
+	end)
 end)
 
--- Leaderboard Update: refresh leaderboard panel
+-- LeaderboardUpdate: refresh both leaderboard UIs
 remotes.LeaderboardUpdate.OnClientEvent:Connect(function(topKissers)
-	LeaderboardController:UpdateEntries(topKissers)
-	UIController:UpdateLeaderboard(topKissers)
+	pcall(function()
+		LeaderboardController:UpdateEntries(topKissers)
+		UIController:UpdateLeaderboard(topKissers)
+	end)
 end)
 
--- Milestone Announcement: banner + sound + NPC animation
+-- MilestoneAnnouncement: banner + sound + NPC animation + sparkles
 remotes.MilestoneAnnouncement.OnClientEvent:Connect(function(characterName, milestone)
-	UIController:ShowMilestone(characterName, milestone)
-	SoundController:PlayMilestone()
-	AnimationController:OnMilestoneAnnouncement(characterName, milestone)
+	pcall(function()
+		UIController:ShowMilestone(characterName, milestone)
+		SoundController:PlayMilestone()
+		AnimationController:OnMilestoneAnnouncement(characterName, milestone)
 
-	-- Sparkle at NPC
-	local npcsFolder = Workspace:FindFirstChild("NPCs")
-	if npcsFolder then
-		local npcModel = npcsFolder:FindFirstChild(characterName)
-		if npcModel then
-			local body = npcModel:FindFirstChild("Body") or npcModel.PrimaryPart
-			if body then
-				VFXController:SpawnSparkles(body.Position)
-			end
+		local body = findNPCBody(characterName)
+		if body then
+			VFXController:SpawnSparkles(body.Position)
 		end
-	end
+	end)
 end)
 
-print("[Client] All controllers wired up - game ready!")
+print("====================================")
+print("  ALL CONTROLLERS LOADED")
+print("  Remotes: wired")
+print("  Game ready!")
+print("====================================")

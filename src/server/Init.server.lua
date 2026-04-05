@@ -1,43 +1,116 @@
--- Server Bootstrap
--- Initializes all server services in order
+-- Server Bootstrap — Kiss the Brainrot
+-- Loads all services sequentially: each :Init() completes before the next starts
 
+local Players = game:GetService("Players")
 local Services = script:WaitForChild("Services")
 
 local RemoteService = require(Services:WaitForChild("RemoteService"))
 local DataService = require(Services:WaitForChild("DataService"))
 local CharacterService = require(Services:WaitForChild("CharacterService"))
-local LeaderboardService = require(Services:WaitForChild("LeaderboardService"))
-local KissService = require(Services:WaitForChild("KissService"))
-local WorldService = require(Services:WaitForChild("WorldService"))
 local ModelService = require(Services:WaitForChild("ModelService"))
+local WorldService = require(Services:WaitForChild("WorldService"))
+local KissService = require(Services:WaitForChild("KissService"))
+local LeaderboardService = require(Services:WaitForChild("LeaderboardService"))
 
+-- Strict init order: remotes first, then data, then world/models, then gameplay
 local serviceList = {
-	{ name = "WorldService", module = WorldService },
-	{ name = "RemoteService", module = RemoteService },
-	{ name = "ModelService", module = ModelService },
-	{ name = "DataService", module = DataService },
+	{ name = "RemoteService",    module = RemoteService },
+	{ name = "DataService",      module = DataService },
 	{ name = "CharacterService", module = CharacterService },
+	{ name = "ModelService",     module = ModelService },
+	{ name = "WorldService",     module = WorldService },
+	{ name = "KissService",      module = KissService },
 	{ name = "LeaderboardService", module = LeaderboardService },
-	{ name = "KissService", module = KissService },
 }
 
--- Phase 1: Init all services
-print("[Server] Initializing services...")
+print("====================================")
+print("  KISS THE BRAINROT - SERVER START")
+print("====================================")
+
+-- Phase 1: Init all services sequentially
 for _, service in ipairs(serviceList) do
-	service.module:Init()
-	print("[Server] " .. service.name .. " initialized")
+	local ok, err = pcall(function()
+		service.module:Init()
+	end)
+	if ok then
+		print("  [+] " .. service.name .. " initialized")
+	else
+		warn("  [X] " .. service.name .. " FAILED init: " .. tostring(err))
+	end
 end
 
--- Wire up cross-service dependencies
+-- Wire cross-service dependencies
 CharacterService:SetRemoteService(RemoteService)
 LeaderboardService:SetServices(DataService, RemoteService)
 KissService:SetServices(DataService, CharacterService, RemoteService, LeaderboardService)
 
--- Phase 2: Start all services
-print("[Server] Starting services...")
+-- Phase 2: Start all services sequentially
 for _, service in ipairs(serviceList) do
-	service.module:Start()
-	print("[Server] " .. service.name .. " started")
+	local ok, err = pcall(function()
+		service.module:Start()
+	end)
+	if ok then
+		print("  [+] " .. service.name .. " started")
+	else
+		warn("  [X] " .. service.name .. " FAILED start: " .. tostring(err))
+	end
 end
 
-print("[Server] All services loaded successfully!")
+-- Phase 3: Player join flow
+Players.PlayerAdded:Connect(function(player)
+	-- Wait for DataService to load this player's data
+	task.wait(1)
+
+	pcall(function()
+		local data = DataService:GetData(player)
+		if data then
+			RemoteService:FireClient("CoinsUpdate", player, data.CoinsEarned)
+		end
+	end)
+
+	pcall(function()
+		local top10 = LeaderboardService:GetTopKissers()
+		RemoteService:FireClient("LeaderboardUpdate", player, top10)
+	end)
+end)
+
+-- Send initial data to any players already connected
+for _, player in ipairs(Players:GetPlayers()) do
+	task.spawn(function()
+		task.wait(1)
+		pcall(function()
+			local data = DataService:GetData(player)
+			if data then
+				RemoteService:FireClient("CoinsUpdate", player, data.CoinsEarned)
+			end
+		end)
+		pcall(function()
+			local top10 = LeaderboardService:GetTopKissers()
+			RemoteService:FireClient("LeaderboardUpdate", player, top10)
+		end)
+	end)
+end
+
+-- Phase 4: Server-side ProximityPrompt connection
+-- When any player activates a KissPrompt, fire RequestKiss to server pipeline
+local ProximityPromptService = game:GetService("ProximityPromptService")
+ProximityPromptService.PromptTriggered:Connect(function(prompt, triggeringPlayer)
+	if prompt.Name ~= "KissPrompt" then return end
+
+	local model = prompt.Parent and prompt.Parent.Parent
+	if not model then return end
+
+	local nameValue = model:FindFirstChild("CharacterName")
+	local characterName = nameValue and nameValue.Value or model.Name
+
+	pcall(function()
+		KissService:HandleKissRequest(triggeringPlayer, characterName)
+	end)
+end)
+
+print("====================================")
+print("  ALL SERVICES LOADED")
+print("  Characters: " .. #ModelService:GetCharacterNames())
+print("  Remotes: active")
+print("  ProximityPrompts: wired")
+print("====================================")

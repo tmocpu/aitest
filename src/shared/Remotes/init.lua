@@ -14,6 +14,7 @@ local REMOTE_EVENTS = {
 	"SuperKissEvent",
 	"LeaderboardUpdate",
 	"MilestoneAnnouncement",
+	"CoinsUpdate",
 }
 
 function Remotes:Init()
