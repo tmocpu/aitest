@@ -135,8 +135,8 @@ task.spawn(function()
 			"[Perf] Memory: %.0fMB | Players: %d | Kisses: %d",
 			memMB, playerCount, totalServerKisses
 		))
-		if memMB > 500 then
-			warn("[Perf] WARNING: Memory exceeds 500MB!")
+		if memMB > 2000 then
+			warn("[Perf] WARNING: Memory exceeds 2000MB!")
 		end
 	end
 end)

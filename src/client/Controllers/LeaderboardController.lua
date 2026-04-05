@@ -39,9 +39,10 @@ function LeaderboardController:BuildLeaderboard()
 	leaderboardFrame = Instance.new("Frame")
 	leaderboardFrame.Name = "Leaderboard"
 	leaderboardFrame.Size = UDim2.new(0, 240, 0, 460)
-	leaderboardFrame.Position = UDim2.new(1, -260, 0, 60)
+	leaderboardFrame.Position = UDim2.new(1, 10, 0, 60) -- start off-screen right
 	leaderboardFrame.BackgroundColor3 = UITheme.Colors.LeaderboardBg
 	leaderboardFrame.BackgroundTransparency = 0.1
+	leaderboardFrame.Visible = false
 	leaderboardFrame.Parent = screenGui
 
 	UITheme.Corner(leaderboardFrame, UITheme.CornerRadius.Large)
@@ -104,6 +105,7 @@ function LeaderboardController:BuildLeaderboard()
 	toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 	toggleBtn.Font = Enum.Font.SourceSansBold
 	toggleBtn.TextSize = 22
+	toggleBtn.Visible = false -- hidden; UIController handles leaderboard toggle
 	toggleBtn.Parent = screenGui
 
 	UITheme.Corner(toggleBtn, UITheme.CornerRadius.Medium)

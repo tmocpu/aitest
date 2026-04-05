@@ -9,10 +9,10 @@ local WorldService = {}
 WorldService.__index = WorldService
 
 local NUM_PEDESTALS = 8
-local PLAZA_RADIUS = 40
-local PEDESTAL_RING_RADIUS = 30
-local PEDESTAL_HEIGHT = 4
-local PEDESTAL_WIDTH = 5
+local PLAZA_RADIUS = 55
+local PEDESTAL_RING_RADIUS = 50
+local PEDESTAL_HEIGHT = 3
+local PEDESTAL_WIDTH = 8
 
 -- Precompute pedestal positions (evenly spaced around circle)
 local pedestalPositions = {}
@@ -306,13 +306,13 @@ end
 ---------------------------------------------------------------------------
 
 function WorldService:SetupLighting()
-	-- Warm sunset golden hour
-	Lighting.ClockTime = 18
-	Lighting.Brightness = 2
-	Lighting.Ambient = Color3.fromRGB(180, 140, 160) -- soft pink/purple
-	Lighting.OutdoorAmbient = Color3.fromRGB(190, 150, 140)
-	Lighting.ColorShift_Top = Color3.fromRGB(255, 200, 150) -- warm orange
-	Lighting.ColorShift_Bottom = Color3.fromRGB(140, 100, 120)
+	-- Warm afternoon with color
+	Lighting.ClockTime = 15
+	Lighting.Brightness = 3
+	Lighting.Ambient = Color3.fromRGB(160, 150, 180)
+	Lighting.OutdoorAmbient = Color3.fromRGB(180, 170, 160)
+	Lighting.ColorShift_Top = Color3.fromRGB(255, 220, 180)
+	Lighting.ColorShift_Bottom = Color3.fromRGB(160, 130, 150)
 	Lighting.GlobalShadows = true
 	Lighting.EnvironmentDiffuseScale = 1
 	Lighting.EnvironmentSpecularScale = 0.5
@@ -332,9 +332,9 @@ function WorldService:SetupLighting()
 		bloom = Instance.new("BloomEffect")
 		bloom.Parent = Lighting
 	end
-	bloom.Intensity = 0.5
-	bloom.Size = 36
-	bloom.Threshold = 1.2
+	bloom.Intensity = 0.3
+	bloom.Size = 24
+	bloom.Threshold = 1.8
 
 	-- Color correction: warm saturation
 	local cc = Lighting:FindFirstChildOfClass("ColorCorrectionEffect")
@@ -362,12 +362,12 @@ function WorldService:SetupLighting()
 		atmo = Instance.new("Atmosphere")
 		atmo.Parent = Lighting
 	end
-	atmo.Density = 0.3
-	atmo.Offset = 0.2
-	atmo.Color = Color3.fromRGB(255, 220, 190) -- warm haze
-	atmo.Decay = Color3.fromRGB(180, 140, 120)
-	atmo.Glare = 0.3
-	atmo.Haze = 3
+	atmo.Density = 0.15
+	atmo.Offset = 0
+	atmo.Color = Color3.fromRGB(200, 210, 255) -- soft blue sky
+	atmo.Decay = Color3.fromRGB(220, 200, 180)
+	atmo.Glare = 0.1
+	atmo.Haze = 1
 end
 
 function WorldService:SetupPedestalLights()
