@@ -11,15 +11,19 @@ local ModelService = require(Services:WaitForChild("ModelService"))
 local WorldService = require(Services:WaitForChild("WorldService"))
 local KissService = require(Services:WaitForChild("KissService"))
 local LeaderboardService = require(Services:WaitForChild("LeaderboardService"))
+local GamepassService = require(Services:WaitForChild("GamepassService"))
+local ProductService = require(Services:WaitForChild("ProductService"))
 
--- Strict init order: remotes first, then data, then world/models, then gameplay
+-- Strict init order
 local serviceList = {
-	{ name = "RemoteService",    module = RemoteService },
-	{ name = "DataService",      module = DataService },
-	{ name = "CharacterService", module = CharacterService },
-	{ name = "ModelService",     module = ModelService },
-	{ name = "WorldService",     module = WorldService },
-	{ name = "KissService",      module = KissService },
+	{ name = "RemoteService",      module = RemoteService },
+	{ name = "DataService",        module = DataService },
+	{ name = "CharacterService",   module = CharacterService },
+	{ name = "ModelService",       module = ModelService },
+	{ name = "WorldService",       module = WorldService },
+	{ name = "GamepassService",    module = GamepassService },
+	{ name = "ProductService",     module = ProductService },
+	{ name = "KissService",        module = KissService },
 	{ name = "LeaderboardService", module = LeaderboardService },
 }
 
@@ -42,7 +46,9 @@ end
 -- Wire cross-service dependencies
 CharacterService:SetRemoteService(RemoteService)
 LeaderboardService:SetServices(DataService, RemoteService)
-KissService:SetServices(DataService, CharacterService, RemoteService, LeaderboardService)
+KissService:SetServices(DataService, CharacterService, RemoteService, LeaderboardService, GamepassService)
+GamepassService:SetServices(KissService, CharacterService, RemoteService, DataService)
+ProductService:SetServices(DataService, RemoteService, KissService, GamepassService)
 
 -- Phase 2: Start all services sequentially
 for _, service in ipairs(serviceList) do
@@ -58,7 +64,6 @@ end
 
 -- Phase 3: Player join flow
 Players.PlayerAdded:Connect(function(player)
-	-- Wait for DataService to load this player's data
 	task.wait(1)
 
 	pcall(function()
@@ -74,7 +79,7 @@ Players.PlayerAdded:Connect(function(player)
 	end)
 end)
 
--- Send initial data to any players already connected
+-- Send initial data to already-connected players
 for _, player in ipairs(Players:GetPlayers()) do
 	task.spawn(function()
 		task.wait(1)
@@ -91,8 +96,7 @@ for _, player in ipairs(Players:GetPlayers()) do
 	end)
 end
 
--- Phase 4: Server-side ProximityPrompt connection
--- When any player activates a KissPrompt, fire RequestKiss to server pipeline
+-- Phase 4: ProximityPrompt wiring
 local ProximityPromptService = game:GetService("ProximityPromptService")
 ProximityPromptService.PromptTriggered:Connect(function(prompt, triggeringPlayer)
 	if prompt.Name ~= "KissPrompt" then return end
@@ -111,6 +115,7 @@ end)
 print("====================================")
 print("  ALL SERVICES LOADED")
 print("  Characters: " .. #ModelService:GetCharacterNames())
-print("  Remotes: active")
-print("  ProximityPrompts: wired")
+print("  Gamepasses: 4 registered")
+print("  Products: 5 registered")
+print("  MonetizationSystem loaded")
 print("====================================")

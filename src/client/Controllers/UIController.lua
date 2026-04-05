@@ -5,6 +5,7 @@ local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local MarketplaceService = game:GetService("MarketplaceService")
 local Workspace = game:GetService("Workspace")
 
 local player = Players.LocalPlayer
@@ -79,6 +80,12 @@ local LB_SLIDE = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.
 local LB_SLIDE_OUT = TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.In)
 local NAME_FADE_IN = TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
 local NAME_FADE_OUT = TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+
+-- Shop refs
+local shopButton = nil
+local shopPanel = nil
+local shopOpen = false
+local activeTab = "GAMEPASSES"
 
 -- Rank colors
 local GOLD = Color3.fromHex("#FFD700")
@@ -299,6 +306,7 @@ function UIController:Init()
 	buildCoinDisplay()
 	buildLeaderboardButton()
 	buildComboDisplay()
+	buildShopButton()
 end
 
 function UIController:AddCoins(amount)
@@ -1017,6 +1025,352 @@ function UIController:Start()
 	pcall(runProximityCheck)
 
 	print("[UIController] loaded \xE2\x9C\x93")
+end
+
+---------------------------------------------------------------------------
+-- 9. Shop System (gamepasses + boosts tabs)
+---------------------------------------------------------------------------
+
+local SHOP_SLIDE_IN = TweenInfo.new(0.4, Enum.EasingStyle.Back, Enum.EasingDirection.Out)
+local SHOP_SLIDE_OUT = TweenInfo.new(0.3, Enum.EasingStyle.Back, Enum.EasingDirection.In)
+
+local GAMEPASS_CARDS = {
+	{ icon = "\xF0\x9F\xAA\x99", name = "Double Coins", desc = "2x coins on every kiss", configKey = "GAMEPASS_DOUBLE_COINS" },
+	{ icon = "\xE2\x9C\xA8", name = "VIP Aura", desc = "Glow like the legend you are", configKey = "GAMEPASS_VIP_AURA" },
+	{ icon = "\xF0\x9F\x92\x8B", name = "Auto Kiss", desc = "Kisses happen automatically", configKey = "GAMEPASS_AUTO_KISS" },
+	{ icon = "\xF0\x9F\x8D\x80", name = "Lucky Lips", desc = "4x better Super Kiss chance", configKey = "GAMEPASS_LUCKY_LIPS" },
+}
+
+local BOOST_CARDS = {
+	{ icon = "\xF0\x9F\xAA\x99", name = "100 Coins", desc = "Small coin pack", configKey = "PRODUCT_COIN_SMALL" },
+	{ icon = "\xF0\x9F\xAA\x99\xF0\x9F\xAA\x99", name = "500 Coins", desc = "Medium coin pack", configKey = "PRODUCT_COIN_MEDIUM" },
+	{ icon = "\xF0\x9F\x92\xB0", name = "2500 Coins", desc = "Large coin pack", configKey = "PRODUCT_COIN_LARGE" },
+	{ icon = "\xE2\x9A\xA1", name = "Combo Boost", desc = "10x multiplier for 30 seconds", configKey = "PRODUCT_COMBO_BOOST" },
+	{ icon = "\xF0\x9F\x8C\xAA\xEF\xB8\x8F", name = "Kiss Storm", desc = "Kiss every character at once", configKey = "PRODUCT_KISS_STORM" },
+}
+
+local function buildShopButton()
+	shopButton = Instance.new("TextButton")
+	shopButton.Name = "ShopButton"
+	shopButton.Size = UDim2.new(0, 50, 0, 50)
+	shopButton.AnchorPoint = Vector2.new(1, 1)
+	shopButton.Position = UDim2.new(1, -16, 1, -16)
+	shopButton.BackgroundColor3 = HOT_PINK
+	shopButton.BorderSizePixel = 0
+	shopButton.Text = "\xF0\x9F\x9B\x8D\xEF\xB8\x8F"
+	shopButton.TextSize = 26
+	shopButton.Font = Enum.Font.GothamBold
+	shopButton.AutoButtonColor = false
+	shopButton.ZIndex = 2
+	shopButton.Parent = screenGui
+	corner(shopButton)
+	shadow(shopButton)
+
+	-- Bounce in on start
+	local uiScale = Instance.new("UIScale")
+	uiScale.Scale = 0
+	uiScale.Parent = shopButton
+	task.delay(0.5, function()
+		TweenService:Create(uiScale, ANIM_IN, { Scale = 1 }):Play()
+	end)
+
+	shopButton.MouseButton1Click:Connect(function()
+		popScale(shopButton)
+		UIController:ToggleShop()
+	end)
+end
+
+local function createCard(parent, index, icon, name, desc, onClick, isOwned)
+	local card = Instance.new("Frame")
+	card.Name = "Card_" .. index
+	card.Size = UDim2.new(1, -16, 0, 80)
+	card.BackgroundColor3 = WHITE
+	card.BackgroundTransparency = 0.05
+	card.BorderSizePixel = 0
+	card.LayoutOrder = index
+	card.ZIndex = 16
+	card.Parent = parent
+	corner(card)
+
+	local cardStroke = Instance.new("UIStroke")
+	cardStroke.Color = SKY_BLUE
+	cardStroke.Thickness = 2
+	cardStroke.Transparency = 0.4
+	cardStroke.Parent = card
+
+	-- Icon
+	local iconLabel = Instance.new("TextLabel")
+	iconLabel.Size = UDim2.new(0, 40, 0, 40)
+	iconLabel.Position = UDim2.new(0, 10, 0.5, -20)
+	iconLabel.BackgroundTransparency = 1
+	iconLabel.Text = icon
+	iconLabel.TextSize = 28
+	iconLabel.Font = Enum.Font.SourceSans
+	iconLabel.ZIndex = 17
+	iconLabel.Parent = card
+
+	-- Name
+	local nameLabel = Instance.new("TextLabel")
+	nameLabel.Size = UDim2.new(1, -130, 0, 24)
+	nameLabel.Position = UDim2.new(0, 55, 0, 10)
+	nameLabel.BackgroundTransparency = 1
+	nameLabel.Text = name
+	nameLabel.TextColor3 = Color3.fromRGB(40, 40, 60)
+	nameLabel.Font = Enum.Font.GothamBold
+	nameLabel.TextSize = 16
+	nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+	nameLabel.ZIndex = 17
+	nameLabel.Parent = card
+
+	-- Description
+	local descLabel = Instance.new("TextLabel")
+	descLabel.Size = UDim2.new(1, -130, 0, 20)
+	descLabel.Position = UDim2.new(0, 55, 0, 36)
+	descLabel.BackgroundTransparency = 1
+	descLabel.Text = desc
+	descLabel.TextColor3 = Color3.fromRGB(120, 120, 140)
+	descLabel.Font = Enum.Font.GothamBold
+	descLabel.TextSize = 12
+	descLabel.TextXAlignment = Enum.TextXAlignment.Left
+	descLabel.ZIndex = 17
+	descLabel.Parent = card
+
+	-- Buy button
+	local buyBtn = Instance.new("TextButton")
+	buyBtn.Name = "BuyBtn"
+	buyBtn.Size = UDim2.new(0, 65, 0, 32)
+	buyBtn.Position = UDim2.new(1, -75, 0.5, -16)
+	buyBtn.BorderSizePixel = 0
+	buyBtn.Font = Enum.Font.GothamBold
+	buyBtn.TextSize = 14
+	buyBtn.AutoButtonColor = false
+	buyBtn.ZIndex = 18
+	buyBtn.Parent = card
+
+	local btnCorner = Instance.new("UICorner")
+	btnCorner.CornerRadius = UDim.new(0.12, 0)
+	btnCorner.Parent = buyBtn
+
+	if isOwned then
+		buyBtn.BackgroundColor3 = MINT
+		buyBtn.TextColor3 = Color3.fromRGB(30, 100, 50)
+		buyBtn.Text = "\xE2\x9C\x93 OWNED"
+	else
+		buyBtn.BackgroundColor3 = YELLOW
+		buyBtn.TextColor3 = Color3.fromRGB(60, 60, 60)
+		buyBtn.Text = "BUY"
+
+		buyBtn.MouseButton1Click:Connect(function()
+			popScale(buyBtn)
+			pcall(onClick)
+		end)
+	end
+
+	return card
+end
+
+local function buildShopPanel()
+	shopPanel = Instance.new("Frame")
+	shopPanel.Name = "ShopPanel"
+	shopPanel.Size = UDim2.new(0, 380, 0, 520)
+	shopPanel.AnchorPoint = Vector2.new(0.5, 1)
+	shopPanel.Position = UDim2.new(0.5, 0, 1, 600) -- offscreen below
+	shopPanel.BorderSizePixel = 0
+	shopPanel.ZIndex = 14
+	shopPanel.Parent = screenGui
+
+	-- Pastel gradient background
+	shopPanel.BackgroundColor3 = WHITE
+	local gradient = Instance.new("UIGradient")
+	gradient.Color = ColorSequence.new(
+		Color3.fromRGB(255, 230, 245),
+		Color3.fromRGB(230, 240, 255)
+	)
+	gradient.Rotation = 90
+	gradient.Parent = shopPanel
+	corner(shopPanel)
+	shadow(shopPanel)
+
+	-- Title
+	local title = Instance.new("TextLabel")
+	title.Name = "Title"
+	title.Size = UDim2.new(1, -50, 0, 40)
+	title.Position = UDim2.new(0, 16, 0, 8)
+	title.BackgroundTransparency = 1
+	title.Text = "\xF0\x9F\x9B\x8D\xEF\xB8\x8F SHOP"
+	title.TextColor3 = HOT_PINK
+	title.Font = Enum.Font.GothamBold
+	title.TextSize = 24
+	title.TextXAlignment = Enum.TextXAlignment.Left
+	title.ZIndex = 15
+	title.Parent = shopPanel
+
+	-- Close button
+	local closeBtn = Instance.new("TextButton")
+	closeBtn.Name = "CloseBtn"
+	closeBtn.Size = UDim2.new(0, 30, 0, 30)
+	closeBtn.Position = UDim2.new(1, -38, 0, 12)
+	closeBtn.BackgroundColor3 = HOT_PINK
+	closeBtn.BorderSizePixel = 0
+	closeBtn.Text = "\xE2\x9C\x95"
+	closeBtn.TextColor3 = WHITE
+	closeBtn.TextSize = 16
+	closeBtn.Font = Enum.Font.GothamBold
+	closeBtn.AutoButtonColor = false
+	closeBtn.ZIndex = 16
+	closeBtn.Parent = shopPanel
+
+	local closeBtnCorner = Instance.new("UICorner")
+	closeBtnCorner.CornerRadius = UDim.new(0.5, 0)
+	closeBtnCorner.Parent = closeBtn
+
+	closeBtn.MouseButton1Click:Connect(function()
+		popScale(closeBtn)
+		UIController:ToggleShop()
+	end)
+
+	-- Tab buttons
+	local tabFrame = Instance.new("Frame")
+	tabFrame.Name = "Tabs"
+	tabFrame.Size = UDim2.new(1, -16, 0, 36)
+	tabFrame.Position = UDim2.new(0, 8, 0, 50)
+	tabFrame.BackgroundTransparency = 1
+	tabFrame.ZIndex = 15
+	tabFrame.Parent = shopPanel
+
+	local gamepassTab = Instance.new("TextButton")
+	gamepassTab.Name = "GamepassTab"
+	gamepassTab.Size = UDim2.new(0.5, -4, 1, 0)
+	gamepassTab.Position = UDim2.new(0, 0, 0, 0)
+	gamepassTab.BackgroundColor3 = HOT_PINK
+	gamepassTab.BorderSizePixel = 0
+	gamepassTab.Text = "GAMEPASSES"
+	gamepassTab.TextColor3 = WHITE
+	gamepassTab.Font = Enum.Font.GothamBold
+	gamepassTab.TextSize = 14
+	gamepassTab.AutoButtonColor = false
+	gamepassTab.ZIndex = 16
+	gamepassTab.Parent = tabFrame
+	corner(gamepassTab)
+
+	local boostTab = Instance.new("TextButton")
+	boostTab.Name = "BoostTab"
+	boostTab.Size = UDim2.new(0.5, -4, 1, 0)
+	boostTab.Position = UDim2.new(0.5, 4, 0, 0)
+	boostTab.BackgroundColor3 = Color3.fromRGB(180, 180, 200)
+	boostTab.BorderSizePixel = 0
+	boostTab.Text = "BOOSTS"
+	boostTab.TextColor3 = WHITE
+	boostTab.Font = Enum.Font.GothamBold
+	boostTab.TextSize = 14
+	boostTab.AutoButtonColor = false
+	boostTab.ZIndex = 16
+	boostTab.Parent = tabFrame
+	corner(boostTab)
+
+	-- Content scroll frame
+	local contentFrame = Instance.new("ScrollingFrame")
+	contentFrame.Name = "Content"
+	contentFrame.Size = UDim2.new(1, -8, 1, -96)
+	contentFrame.Position = UDim2.new(0, 4, 0, 92)
+	contentFrame.BackgroundTransparency = 1
+	contentFrame.ScrollBarThickness = 4
+	contentFrame.ScrollBarImageColor3 = HOT_PINK
+	contentFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+	contentFrame.BorderSizePixel = 0
+	contentFrame.ZIndex = 15
+	contentFrame.Parent = shopPanel
+
+	local layout = Instance.new("UIListLayout")
+	layout.Padding = UDim.new(0, 8)
+	layout.SortOrder = Enum.SortOrder.LayoutOrder
+	layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	layout.Parent = contentFrame
+
+	-- Tab switching
+	local function showTab(tabName)
+		activeTab = tabName
+
+		-- Update tab visuals
+		if tabName == "GAMEPASSES" then
+			gamepassTab.BackgroundColor3 = HOT_PINK
+			boostTab.BackgroundColor3 = Color3.fromRGB(180, 180, 200)
+		else
+			gamepassTab.BackgroundColor3 = Color3.fromRGB(180, 180, 200)
+			boostTab.BackgroundColor3 = HOT_PINK
+		end
+
+		-- Clear content
+		for _, child in ipairs(contentFrame:GetChildren()) do
+			if child:IsA("Frame") then child:Destroy() end
+		end
+
+		local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Modules"):WaitForChild("Config"))
+
+		if tabName == "GAMEPASSES" then
+			for i, card in ipairs(GAMEPASS_CARDS) do
+				local gamepassId = Config[card.configKey]
+				local owned = false
+				if gamepassId and gamepassId ~= 0 then
+					local ok, result = pcall(function()
+						return MarketplaceService:UserOwnsGamePassAsync(player.UserId, gamepassId)
+					end)
+					if ok then owned = result end
+				end
+
+				createCard(contentFrame, i, card.icon, card.name, card.desc, function()
+					if gamepassId and gamepassId ~= 0 then
+						MarketplaceService:PromptGamePassPurchase(player, gamepassId)
+					end
+				end, owned)
+			end
+			contentFrame.CanvasSize = UDim2.new(0, 0, 0, #GAMEPASS_CARDS * 88)
+		else
+			for i, card in ipairs(BOOST_CARDS) do
+				local productId = Config[card.configKey]
+				createCard(contentFrame, i, card.icon, card.name, card.desc, function()
+					if productId and productId ~= 0 then
+						MarketplaceService:PromptProductPurchase(player, productId)
+					end
+				end, false)
+			end
+			contentFrame.CanvasSize = UDim2.new(0, 0, 0, #BOOST_CARDS * 88)
+		end
+	end
+
+	gamepassTab.MouseButton1Click:Connect(function()
+		showTab("GAMEPASSES")
+	end)
+
+	boostTab.MouseButton1Click:Connect(function()
+		showTab("BOOSTS")
+	end)
+
+	-- Show default tab
+	showTab("GAMEPASSES")
+end
+
+function UIController:ToggleShop()
+	if not shopPanel then
+		buildShopPanel()
+	end
+
+	shopOpen = not shopOpen
+
+	if shopOpen then
+		shopPanel.Visible = true
+		TweenService:Create(shopPanel, SHOP_SLIDE_IN, {
+			Position = UDim2.new(0.5, 0, 1, -16),
+		}):Play()
+	else
+		local tween = TweenService:Create(shopPanel, SHOP_SLIDE_OUT, {
+			Position = UDim2.new(0.5, 0, 1, 600),
+		})
+		tween:Play()
+		tween.Completed:Connect(function()
+			shopPanel.Visible = false
+		end)
+	end
 end
 
 function UIController:GetScreenGui()

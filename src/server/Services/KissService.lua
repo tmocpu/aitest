@@ -11,6 +11,7 @@ local DataService = nil
 local CharacterService = nil
 local RemoteService = nil
 local LeaderboardService = nil
+local GamepassService = nil
 
 local playerCooldowns = {} -- [player] = lastKissTime
 local playerCombos = {}    -- [player] = { count, lastKissTime }
@@ -34,11 +35,12 @@ function KissService:Start()
 	end)
 end
 
-function KissService:SetServices(dataService, characterService, remoteService, leaderboardService)
+function KissService:SetServices(dataService, characterService, remoteService, leaderboardService, gamepassService)
 	DataService = dataService
 	CharacterService = characterService
 	RemoteService = remoteService
 	LeaderboardService = leaderboardService
+	GamepassService = gamepassService
 end
 
 function KissService:HandleKissRequest(player, characterName)
@@ -115,12 +117,27 @@ function KissService:ProcessKiss(player, characterName)
 	local comboCount = combo.count
 	local comboMultiplier = comboCount
 
-	-- Roll for Super Kiss
-	local isSuperKiss = math.random() < Config.SUPER_KISS_CHANCE
+	-- Roll for Super Kiss (Lucky Lips gamepass = 8% instead of 2%)
+	local superChance = Config.SUPER_KISS_CHANCE
+	if GamepassService and GamepassService:HasPass(player, "LUCKY_LIPS") then
+		superChance = Config.SUPER_KISS_CHANCE_LUCKY
+	end
+	local isSuperKiss = math.random() < superChance
 	local coinMultiplier = isSuperKiss and 10 or 1
 
+	-- Combo boost override (from product purchase)
+	local effectiveComboMult = comboMultiplier
+	if GamepassService and GamepassService:HasComboBoost(player) then
+		effectiveComboMult = math.max(comboMultiplier, Config.COMBO_BOOST_MULTIPLIER)
+	end
+
 	-- Calculate coins
-	local coinsAwarded = Config.BASE_KISS_COINS * comboMultiplier * coinMultiplier
+	local coinsAwarded = Config.BASE_KISS_COINS * effectiveComboMult * coinMultiplier
+
+	-- Double Coins gamepass (applied after all other multipliers)
+	if GamepassService and GamepassService:HasPass(player, "DOUBLE_COINS") then
+		coinsAwarded = coinsAwarded * 2
+	end
 
 	-- Determine reaction tier
 	local reactionTier = "normal"
