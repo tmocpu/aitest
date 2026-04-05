@@ -14,17 +14,17 @@ local LeaderboardService = require(Services:WaitForChild("LeaderboardService"))
 local GamepassService = require(Services:WaitForChild("GamepassService"))
 local ProductService = require(Services:WaitForChild("ProductService"))
 
--- Strict init order
+-- Strict init order per spec
 local serviceList = {
 	{ name = "RemoteService",      module = RemoteService },
 	{ name = "DataService",        module = DataService },
 	{ name = "CharacterService",   module = CharacterService },
 	{ name = "ModelService",       module = ModelService },
 	{ name = "WorldService",       module = WorldService },
-	{ name = "GamepassService",    module = GamepassService },
-	{ name = "ProductService",     module = ProductService },
 	{ name = "KissService",        module = KissService },
 	{ name = "LeaderboardService", module = LeaderboardService },
+	{ name = "GamepassService",    module = GamepassService },
+	{ name = "ProductService",     module = ProductService },
 }
 
 print("====================================")
@@ -112,10 +112,40 @@ ProximityPromptService.PromptTriggered:Connect(function(prompt, triggeringPlayer
 	end)
 end)
 
+-- Phase 5: Performance monitor (every 30s)
+local totalServerKisses = 0
+
+-- Patch KissService to count kisses for monitoring
+local origProcessKiss = KissService.ProcessKiss
+KissService.ProcessKiss = function(self2, player, characterName, ...)
+	totalServerKisses = totalServerKisses + 1
+	return origProcessKiss(self2, player, characterName, ...)
+end
+
+task.spawn(function()
+	while true do
+		task.wait(30)
+		local stats = game:GetService("Stats")
+		local memMB = 0
+		pcall(function()
+			memMB = stats:GetTotalMemoryUsageMb()
+		end)
+		local playerCount = #Players:GetPlayers()
+		print(string.format(
+			"[Perf] Memory: %.0fMB | Players: %d | Kisses: %d",
+			memMB, playerCount, totalServerKisses
+		))
+		if memMB > 500 then
+			warn("[Perf] WARNING: Memory exceeds 500MB!")
+		end
+	end
+end)
+
 print("====================================")
 print("  ALL SERVICES LOADED")
 print("  Characters: " .. #ModelService:GetCharacterNames())
 print("  Gamepasses: 4 registered")
 print("  Products: 5 registered")
 print("  MonetizationSystem loaded")
+print("  Performance monitor: active (30s)")
 print("====================================")

@@ -1024,7 +1024,71 @@ function UIController:Start()
 	pcall(setupCharNamePopups)
 	pcall(runProximityCheck)
 
+	-- Debug: P key runs UI smoke test
+	self:SetupSmokeTestKeybind()
+
 	print("[UIController] loaded \xE2\x9C\x93")
+end
+
+---------------------------------------------------------------------------
+-- 8b. UI Smoke Test (P key debug trigger)
+---------------------------------------------------------------------------
+
+function UIController:RunSmokeTest()
+	print("[UIController] Starting UI smoke test...")
+
+	local mockTop10 = {}
+	for i = 1, 10 do
+		table.insert(mockTop10, {
+			Rank = i,
+			Name = "Player" .. i,
+			TotalKisses = 600 - i * 50,
+		})
+	end
+
+	local steps = {
+		function() self:AddCoins(999); print("  [smoke] AddCoins(999)") end,
+		function()
+			local pos = Vector3.new(0, 5, 0)
+			self:SpawnKissPopup(pos, 10, false)
+			print("  [smoke] SpawnKissPopup normal")
+		end,
+		function()
+			local pos = Vector3.new(0, 5, 0)
+			self:SpawnKissPopup(pos, 100, true)
+			print("  [smoke] SpawnKissPopup super")
+		end,
+		function() self:ShowComboBanner(3); print("  [smoke] ComboBanner 3x") end,
+		function() self:ShowComboBanner(7); print("  [smoke] ComboBanner 7x") end,
+		function() self:ShowComboBanner(12); print("  [smoke] ComboBanner 12x") end,
+		function() self:UpdateLeaderboard(mockTop10); print("  [smoke] UpdateLeaderboard") end,
+		function() UIController.toggleLeaderboard(); print("  [smoke] Leaderboard open") end,
+		function() task.wait(1.5) end, -- hold open
+		function() UIController.toggleLeaderboard(); print("  [smoke] Leaderboard close") end,
+		function()
+			self:ShowMilestone("Pizzicato Pangolino", 100)
+			print("  [smoke] MilestoneBanner")
+		end,
+		function() self:AddCoins(0); print("  [smoke] AddCoins(0) reset display") end,
+	}
+
+	task.spawn(function()
+		for _, fn in ipairs(steps) do
+			pcall(fn)
+			task.wait(0.5)
+		end
+		print("[UIController] UI SMOKE TEST COMPLETE")
+	end)
+end
+
+function UIController:SetupSmokeTestKeybind()
+	local UserInputService = game:GetService("UserInputService")
+	UserInputService.InputBegan:Connect(function(input, gameProcessed)
+		if gameProcessed then return end
+		if input.KeyCode == Enum.KeyCode.P then
+			self:RunSmokeTest()
+		end
+	end)
 end
 
 ---------------------------------------------------------------------------
